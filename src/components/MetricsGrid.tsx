@@ -52,11 +52,11 @@ const MetricsGrid = ({ metrics, cash }: MetricsGridProps) => {
           className={`glass-card p-4 ${stat.highlight ? 'col-span-2 lg:col-span-1' : ''}`}
         >
           <div className="flex items-center gap-2 mb-2">
-            <stat.icon className={`w-4 h-4 ${stat.positive ? 'text-primary' : 'text-destructive'}`} />
+            <stat.icon className={`w-4 h-4 ${stat.positive ? 'text-muted-foreground' : 'text-destructive'}`} />
             <span className="text-xs text-muted-foreground">{stat.label}</span>
           </div>
           <p className={`text-lg font-bold ${
-            stat.positive ? (stat.highlight ? 'text-gradient' : 'text-foreground') : 'text-destructive'
+            stat.positive ? 'text-foreground' : 'text-destructive'
           }`}>
             {stat.value}
           </p>

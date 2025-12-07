@@ -49,7 +49,7 @@ const HoldingsTable = ({ holdings, onTrade }: HoldingsTableProps) => {
                 >
                   <td className="p-4">
                     <div>
-                      <p className="font-semibold text-primary">{holding.symbol}</p>
+                      <p className="font-semibold text-foreground">{holding.symbol}</p>
                       <p className="text-xs text-muted-foreground truncate max-w-[120px]">{holding.name}</p>
                     </div>
                   </td>

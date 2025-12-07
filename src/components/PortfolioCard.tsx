@@ -24,17 +24,17 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
           <div className="flex items-center gap-2 mb-1">
             <h3 className="text-lg font-semibold truncate">{portfolio.name}</h3>
             {portfolio.isExample && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs font-medium">
                 <Sparkles className="w-3 h-3" />
                 Example
               </span>
             )}
           </div>
-          <p className="text-2xl font-bold text-gradient">
+          <p className="text-2xl font-bold text-foreground">
             {formatCurrency(metrics.totalValue)}
           </p>
         </div>
-        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-1 transition-all" />
       </div>
 
       <div className="grid grid-cols-3 gap-3">
