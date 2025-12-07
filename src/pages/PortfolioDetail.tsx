@@ -9,10 +9,11 @@ import HoldingsTable from '@/components/HoldingsTable';
 import AllocationChart from '@/components/AllocationChart';
 import DiversityScore from '@/components/DiversityScore';
 import TradeModal from '@/components/TradeModal';
+import AssetDetailModal from '@/components/AssetDetailModal';
 import { getPortfolio, deletePortfolio, updatePortfolio } from '@/lib/storage';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { getMultipleQuotes } from '@/lib/market';
-import { Portfolio, PortfolioMetrics, Transaction } from '@/lib/types';
+import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
 
 const PortfolioDetail = () => {
@@ -24,6 +25,7 @@ const PortfolioDetail = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
   const [tradeSymbol, setTradeSymbol] = useState<string | undefined>();
+  const [selectedHolding, setSelectedHolding] = useState<Holding | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const loadPortfolioData = useCallback(async () => {
@@ -86,6 +88,13 @@ const PortfolioDetail = () => {
     if (!id) return;
     deletePortfolio(id);
     navigate('/');
+  };
+
+  const handleViewAsset = (symbol: string) => {
+    const holding = portfolio?.holdings.find(h => h.symbol === symbol);
+    if (holding) {
+      setSelectedHolding(holding);
+    }
   };
 
   const handleTrade = (symbol?: string) => {
@@ -190,7 +199,7 @@ const PortfolioDetail = () => {
             <h2 className="text-lg font-semibold mb-4">Holdings</h2>
             <HoldingsTable 
               holdings={portfolio.holdings} 
-              onTrade={handleTrade}
+              onTrade={handleViewAsset}
             />
           </div>
           
@@ -242,6 +251,17 @@ const PortfolioDetail = () => {
           </div>
         )}
       </main>
+
+      {/* Asset Detail Modal */}
+      <AssetDetailModal
+        isOpen={!!selectedHolding}
+        onClose={() => setSelectedHolding(null)}
+        holding={selectedHolding}
+        onTrade={(symbol) => {
+          setSelectedHolding(null);
+          handleTrade(symbol);
+        }}
+      />
 
       {/* Trade Modal */}
       <TradeModal
