@@ -19,7 +19,7 @@ const DiversityScore = ({ holdings }: DiversityScoreProps) => {
   return (
     <div className="glass-card p-6">
       <div className="flex items-center gap-2 mb-4">
-        <Shield className="w-4 h-4 text-primary" />
+        <Shield className="w-4 h-4 text-muted-foreground" />
         <h3 className="text-sm font-semibold">Diversity Score</h3>
       </div>
 
@@ -65,7 +65,7 @@ const DiversityScore = ({ holdings }: DiversityScoreProps) => {
             return (
               <div key={index} className="flex items-start gap-2">
                 <Icon className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
-                  isPositive ? 'text-success' : (analysis.score < 40 ? 'text-destructive' : 'text-primary')
+                  isPositive ? 'text-success' : (analysis.score < 40 ? 'text-destructive' : 'text-muted-foreground')
                 }`} />
                 <p className="text-xs text-muted-foreground">{rec}</p>
               </div>

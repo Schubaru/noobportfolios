@@ -44,12 +44,12 @@ const Index = () => {
         {/* Hero Section */}
         <div className="mb-10">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center glow-accent">
-              <TrendingUp className="w-7 h-7 text-primary" />
+            <div className="w-14 h-14 rounded-2xl bg-secondary flex items-center justify-center">
+              <TrendingUp className="w-7 h-7 text-foreground" />
             </div>
             <div>
-              <h1 className="text-3xl md:text-4xl font-bold">
-                Welcome to <span className="text-gradient">N00B Portfolios</span>
+              <h1 className="text-3xl md:text-4xl font-bold text-foreground">
+                Welcome to N00B Portfolios
               </h1>
               <p className="text-muted-foreground">
                 Practice trading with $10,000 virtual cash per portfolio
@@ -63,7 +63,7 @@ const Index = () => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="glass-card p-4">
               <p className="text-xs text-muted-foreground mb-1">Total Portfolios</p>
-              <p className="text-2xl font-bold text-gradient">{portfolios.length}</p>
+              <p className="text-2xl font-bold text-foreground">{portfolios.length}</p>
             </div>
             <div className="glass-card p-4">
               <p className="text-xs text-muted-foreground mb-1">Combined Value</p>
@@ -139,10 +139,10 @@ const Index = () => {
 
         {/* Example Portfolio Hint */}
         {portfolios.length === 1 && portfolios[0].isExample && (
-          <div className="mt-8 p-6 glass-card border-primary/20">
+          <div className="mt-8 p-6 glass-card">
             <div className="flex items-start gap-4">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-5 h-5 text-primary" />
+              <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 text-muted-foreground" />
               </div>
               <div>
                 <h3 className="font-semibold mb-1">Explore the Example Portfolio</h3>
@@ -152,7 +152,7 @@ const Index = () => {
                 </p>
                 <button
                   onClick={() => setIsCreateModalOpen(true)}
-                  className="text-sm text-primary hover:underline font-medium"
+                  className="text-sm text-foreground hover:underline font-medium"
                 >
                   Or create your own portfolio →
                 </button>
