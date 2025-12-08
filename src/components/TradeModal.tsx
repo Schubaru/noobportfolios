@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Portfolio, QuoteData, SearchResult, Holding } from '@/lib/types';
 import { searchSymbols, getQuote } from '@/lib/market';
@@ -16,15 +16,18 @@ interface TradeModalProps {
 
 type TradeType = 'buy' | 'sell';
 type TradeStep = 'search' | 'details' | 'confirm';
+type InputMode = 'shares' | 'dollars';
 
 const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol }: TradeModalProps) => {
   const [step, setStep] = useState<TradeStep>('search');
   const [tradeType, setTradeType] = useState<TradeType>('buy');
+  const [inputMode, setInputMode] = useState<InputMode>('shares');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedQuote, setSelectedQuote] = useState<QuoteData | null>(null);
   const [shares, setShares] = useState('');
+  const [dollarAmount, setDollarAmount] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -38,17 +41,30 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
 
   const maxSellShares = existingHolding?.shares || 0;
 
-  const totalCost = selectedQuote && shares 
-    ? Number(shares) * selectedQuote.currentPrice 
+  // Calculate effective shares based on input mode
+  const effectiveShares = selectedQuote 
+    ? inputMode === 'dollars' && dollarAmount
+      ? Number(dollarAmount) / selectedQuote.currentPrice
+      : Number(shares) || 0
     : 0;
+
+  const totalCost = selectedQuote 
+    ? effectiveShares * selectedQuote.currentPrice 
+    : 0;
+
+  const hasValidInput = inputMode === 'shares' 
+    ? shares && Number(shares) > 0 
+    : dollarAmount && Number(dollarAmount) > 0;
 
   const resetState = useCallback(() => {
     setStep('search');
     setTradeType('buy');
+    setInputMode('shares');
     setSearchQuery('');
     setSearchResults([]);
     setSelectedQuote(null);
     setShares('');
+    setDollarAmount('');
     setError('');
     setIsLoading(false);
   }, []);
@@ -108,16 +124,22 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
   };
 
   const handleConfirmTrade = async () => {
-    if (!selectedQuote || !shares) return;
+    if (!selectedQuote || !hasValidInput) return;
     
     setIsLoading(true);
     setError('');
 
-    const shareCount = Number(shares);
+    const shareCount = effectiveShares;
     const price = selectedQuote.currentPrice;
     const total = shareCount * price;
 
     // Validation
+    if (shareCount <= 0) {
+      setError('Please enter a valid amount.');
+      setIsLoading(false);
+      return;
+    }
+
     if (tradeType === 'buy') {
       if (total > portfolio.cash) {
         setError('Insufficient funds for this trade.');
@@ -152,11 +174,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
         // Update existing holding with new average cost
         const holding = updatedPortfolio.holdings[holdingIndex];
         const totalShares = holding.shares + shareCount;
-        const totalCost = (holding.avgCost * holding.shares) + (price * shareCount);
+        const totalCostCalc = (holding.avgCost * holding.shares) + (price * shareCount);
         updatedPortfolio.holdings[holdingIndex] = {
           ...holding,
           shares: totalShares,
-          avgCost: totalCost / totalShares,
+          avgCost: totalCostCalc / totalShares,
           currentPrice: price,
         };
       } else {
@@ -216,6 +238,17 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setIsLoading(false);
     onTradeComplete();
     onClose();
+  };
+
+  const handleSetMaxShares = () => {
+    if (inputMode === 'shares') {
+      setShares(String(tradeType === 'buy' ? maxBuyShares : maxSellShares));
+    } else if (selectedQuote) {
+      const maxDollars = tradeType === 'buy' 
+        ? portfolio.cash 
+        : maxSellShares * selectedQuote.currentPrice;
+      setDollarAmount(String(Math.floor(maxDollars * 100) / 100));
+    }
   };
 
   if (!isOpen) return null;
@@ -319,7 +352,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 </div>
                 {existingHolding && (
                   <p className="text-xs text-primary">
-                    You own {existingHolding.shares} shares
+                    You own {existingHolding.shares.toFixed(4)} shares
                   </p>
                 )}
               </div>
@@ -349,31 +382,92 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 </button>
               </div>
 
-              {/* Shares Input */}
+              {/* Input Mode Toggle */}
+              <div className="flex rounded-xl bg-muted p-1">
+                <button
+                  onClick={() => {
+                    setInputMode('shares');
+                    setDollarAmount('');
+                  }}
+                  className={`flex-1 py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                    inputMode === 'shares' 
+                      ? 'bg-secondary text-foreground shadow-sm' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Hash className="w-4 h-4" />
+                  Shares
+                </button>
+                <button
+                  onClick={() => {
+                    setInputMode('dollars');
+                    setShares('');
+                  }}
+                  className={`flex-1 py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                    inputMode === 'dollars' 
+                      ? 'bg-secondary text-foreground shadow-sm' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <DollarSign className="w-4 h-4" />
+                  Dollars
+                </button>
+              </div>
+
+              {/* Input Field */}
               <div>
                 <div className="flex justify-between mb-2">
-                  <label className="text-sm font-medium">Shares</label>
+                  <label className="text-sm font-medium">
+                    {inputMode === 'shares' ? 'Number of Shares' : 'Dollar Amount'}
+                  </label>
                   <button
-                    onClick={() => setShares(String(tradeType === 'buy' ? maxBuyShares : maxSellShares))}
+                    onClick={handleSetMaxShares}
                     className="text-xs text-primary hover:underline"
                   >
-                    Max: {tradeType === 'buy' ? maxBuyShares : maxSellShares}
+                    {inputMode === 'shares' 
+                      ? `Max: ${tradeType === 'buy' ? maxBuyShares : maxSellShares} shares`
+                      : `Max: ${formatCurrency(tradeType === 'buy' ? portfolio.cash : maxSellShares * selectedQuote.currentPrice)}`
+                    }
                   </button>
                 </div>
-                <input
-                  type="number"
-                  min="1"
-                  max={tradeType === 'buy' ? maxBuyShares : maxSellShares}
-                  value={shares}
-                  onChange={(e) => setShares(e.target.value)}
-                  placeholder="Enter number of shares"
-                  className="w-full px-4 py-3 rounded-xl bg-secondary border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
-                />
+                {inputMode === 'shares' ? (
+                  <input
+                    type="number"
+                    min="0.0001"
+                    step="any"
+                    max={tradeType === 'buy' ? maxBuyShares : maxSellShares}
+                    value={shares}
+                    onChange={(e) => setShares(e.target.value)}
+                    placeholder="Enter number of shares"
+                    className="w-full px-4 py-3 rounded-xl bg-secondary border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                  />
+                ) : (
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={tradeType === 'buy' ? portfolio.cash : maxSellShares * selectedQuote.currentPrice}
+                      value={dollarAmount}
+                      onChange={(e) => setDollarAmount(e.target.value)}
+                      placeholder="Enter dollar amount"
+                      className="w-full pl-8 pr-4 py-3 rounded-xl bg-secondary border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                    />
+                  </div>
+                )}
+
+                {/* Shares preview for dollar input */}
+                {inputMode === 'dollars' && dollarAmount && Number(dollarAmount) > 0 && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    ≈ {effectiveShares.toFixed(4)} shares
+                  </p>
+                )}
               </div>
 
               {/* Order Summary */}
-              {shares && Number(shares) > 0 && (
-                <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
+              {hasValidInput && (
+                <div className="p-4 rounded-xl bg-muted/50 border border-border space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Order Type</span>
                     <span className={tradeType === 'buy' ? 'text-success' : 'text-destructive'}>
@@ -382,7 +476,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      {shares} shares × {formatCurrency(selectedQuote.currentPrice)}
+                      {effectiveShares.toFixed(4)} shares × {formatCurrency(selectedQuote.currentPrice)}
                     </span>
                     <span className="font-bold">{formatCurrency(totalCost)}</span>
                   </div>
@@ -402,7 +496,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
 
               {error && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-                  <AlertCircle className="w-4 h-4" />
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   {error}
                 </div>
               )}
@@ -414,6 +508,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                     setSelectedQuote(null);
                     setStep('search');
                     setShares('');
+                    setDollarAmount('');
                     setError('');
                   }}
                   className="flex-1 py-3 rounded-xl border border-border font-medium hover:bg-secondary transition-colors"
@@ -422,7 +517,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 </button>
                 <button
                   onClick={handleConfirmTrade}
-                  disabled={!shares || Number(shares) <= 0 || isLoading}
+                  disabled={!hasValidInput || isLoading}
                   className={`flex-1 py-3 rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                     tradeType === 'buy' 
                       ? 'bg-primary text-primary-foreground hover:bg-primary/90' 
