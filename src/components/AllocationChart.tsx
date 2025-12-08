@@ -38,16 +38,16 @@ const AllocationChart = ({ holdings }: AllocationChartProps) => {
       <h3 className="text-sm font-semibold mb-4">Asset Allocation</h3>
       
       <div className="flex flex-col md:flex-row items-center gap-6">
-        <div className="w-[180px] h-[180px]">
+        <div className="w-[200px] h-[200px] flex-shrink-0">
           <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
+            <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
               <Pie
                 data={allocation}
                 cx="50%"
                 cy="50%"
-                innerRadius={55}
-                outerRadius={80}
-                paddingAngle={3}
+                innerRadius={50}
+                outerRadius={75}
+                paddingAngle={2}
                 dataKey="percentage"
               >
                 {allocation.map((entry, index) => (
@@ -59,12 +59,12 @@ const AllocationChart = ({ holdings }: AllocationChartProps) => {
           </ResponsiveContainer>
         </div>
 
-        <div className="flex-1 space-y-2 w-full">
+        <div className="flex-1 space-y-3 w-full">
           {allocation.map((item) => (
             <div key={item.assetClass} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div 
-                  className="w-3 h-3 rounded-full" 
+                  className="w-3 h-3 rounded-full flex-shrink-0" 
                   style={{ backgroundColor: item.color }}
                 />
                 <span className="text-sm">{getAssetClassLabel(item.assetClass)}</span>
