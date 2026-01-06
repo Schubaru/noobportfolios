@@ -49,7 +49,7 @@ const Index = () => {
             </div>
             <div>
               <h1 className="text-3xl md:text-4xl font-bold text-foreground">
-                Welcome to N00B Portfolios
+                N00B Portfolios™
               </h1>
               <p className="text-muted-foreground">
                 Practice trading with $10,000 virtual cash per portfolio
