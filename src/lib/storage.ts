@@ -11,7 +11,24 @@ export const loadPortfolios = (): Portfolio[] => {
       savePortfolios([example]);
       return [example];
     }
-    return JSON.parse(stored);
+    
+    let portfolios: Portfolio[] = JSON.parse(stored);
+    
+    // Migrate: rename "Example Portfolio" to "N00B Portfolio"
+    let needsSave = false;
+    portfolios = portfolios.map(p => {
+      if (p.isExample && p.name === 'Example Portfolio') {
+        needsSave = true;
+        return { ...p, name: 'N00B Portfolio' };
+      }
+      return p;
+    });
+    
+    if (needsSave) {
+      savePortfolios(portfolios);
+    }
+    
+    return portfolios;
   } catch {
     return [];
   }
