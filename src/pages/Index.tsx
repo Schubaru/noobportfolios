@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Briefcase, TrendingUp, Sparkles } from 'lucide-react';
+import { Briefcase, Sparkles } from 'lucide-react';
 import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
 import PortfolioCard from '@/components/PortfolioCard';
@@ -43,18 +43,13 @@ const Index = () => {
       <main className="container mx-auto px-4 py-8">
         {/* Hero Section */}
         <div className="mb-10">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-14 h-14 rounded-2xl bg-secondary flex items-center justify-center">
-              <TrendingUp className="w-7 h-7 text-foreground" />
-            </div>
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-foreground">
-                N00B Portfolios™
-              </h1>
-              <p className="text-muted-foreground">
-                Practice trading with $10,000 virtual cash per portfolio
-              </p>
-            </div>
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-foreground">
+              My portfolios
+            </h1>
+            <p className="text-muted-foreground">
+              Practice trading with $10,000 virtual cash per portfolio
+            </p>
           </div>
         </div>
 

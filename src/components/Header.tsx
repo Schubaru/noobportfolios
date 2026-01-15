@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { TrendingUp, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import noobLogo from '@/assets/noobportlogo.png';
 
 interface HeaderProps {
   onCreateClick?: () => void;
@@ -11,9 +12,7 @@ const Header = ({ onCreateClick, showCreate = true }: HeaderProps) => {
     <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-            <TrendingUp className="w-5 h-5 text-primary" />
-          </div>
+          <img src={noobLogo} alt="N00B Portfolios" className="w-10 h-10 rounded-xl" />
           <div>
             <h1 className="text-lg font-bold tracking-tight">
               N00B <span className="text-primary">Portfolios</span>
