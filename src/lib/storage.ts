@@ -67,7 +67,7 @@ const createExamplePortfolio = (): Portfolio => {
   
   return {
     id: 'example-portfolio',
-    name: 'Example Portfolio',
+    name: 'N00B Portfolio',
     startingCash: 10000,
     cash: 2456.32,
     holdings: [
