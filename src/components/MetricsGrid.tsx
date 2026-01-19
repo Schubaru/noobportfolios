@@ -1,13 +1,16 @@
-import { TrendingUp, TrendingDown, DollarSign, Percent, Wallet } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Percent, Wallet, Coins } from 'lucide-react';
 import { PortfolioMetrics } from '@/lib/types';
 import { formatCurrency, formatPercent, formatPL } from '@/lib/portfolio';
 
 interface MetricsGridProps {
   metrics: PortfolioMetrics;
   cash: number;
+  onDividendClick?: () => void;
 }
 
-const MetricsGrid = ({ metrics, cash }: MetricsGridProps) => {
+const MetricsGrid = ({ metrics, cash, onDividendClick }: MetricsGridProps) => {
+  const hasDividends = metrics.totalDividends > 0;
+  
   const stats = [
     {
       label: 'Total Value',
@@ -24,17 +27,23 @@ const MetricsGrid = ({ metrics, cash }: MetricsGridProps) => {
       positive: metrics.dailyPL >= 0,
     },
     {
-      label: 'All-Time P/L',
-      value: formatPL(metrics.allTimePL),
-      subValue: formatPercent(metrics.allTimePLPercent),
-      icon: metrics.allTimePL >= 0 ? TrendingUp : TrendingDown,
-      positive: metrics.allTimePL >= 0,
+      label: 'Total Return',
+      value: formatPL(metrics.totalReturnWithDividends),
+      subValue: `${formatPercent(metrics.totalReturnWithDividendsPercent)} incl. dividends`,
+      icon: metrics.totalReturnWithDividends >= 0 ? TrendingUp : TrendingDown,
+      positive: metrics.totalReturnWithDividends >= 0,
+      clickable: hasDividends,
+      onClick: onDividendClick,
     },
     {
-      label: 'Cumulative Return',
-      value: formatPercent(metrics.cumulativeReturn),
-      icon: Percent,
-      positive: metrics.cumulativeReturn >= 0,
+      label: 'Dividend Income',
+      value: formatCurrency(metrics.totalDividends),
+      subValue: hasDividends ? 'Click for breakdown' : 'No dividends yet',
+      icon: Coins,
+      positive: true,
+      clickable: hasDividends,
+      onClick: onDividendClick,
+      special: 'dividend',
     },
     {
       label: 'Available Cash',
@@ -46,22 +55,35 @@ const MetricsGrid = ({ metrics, cash }: MetricsGridProps) => {
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-      {stats.map((stat, index) => (
+      {stats.map((stat) => (
         <div 
           key={stat.label}
-          className={`glass-card p-4 ${stat.highlight ? 'col-span-2 lg:col-span-1' : ''}`}
+          onClick={stat.clickable ? stat.onClick : undefined}
+          className={`glass-card p-4 ${stat.highlight ? 'col-span-2 lg:col-span-1' : ''} ${
+            stat.clickable ? 'cursor-pointer hover:border-primary/50 transition-colors' : ''
+          } ${stat.special === 'dividend' && hasDividends ? 'border-success/30' : ''}`}
         >
           <div className="flex items-center gap-2 mb-2">
-            <stat.icon className={`w-4 h-4 ${stat.positive ? 'text-muted-foreground' : 'text-destructive'}`} />
+            <stat.icon className={`w-4 h-4 ${
+              stat.special === 'dividend' && hasDividends 
+                ? 'text-success' 
+                : stat.positive ? 'text-muted-foreground' : 'text-destructive'
+            }`} />
             <span className="text-xs text-muted-foreground">{stat.label}</span>
           </div>
           <p className={`text-lg font-bold ${
-            stat.positive ? 'text-foreground' : 'text-destructive'
+            stat.special === 'dividend' && hasDividends
+              ? 'text-success'
+              : stat.positive ? 'text-foreground' : 'text-destructive'
           }`}>
             {stat.value}
           </p>
           {stat.subValue && (
-            <p className={`text-xs ${stat.positive ? 'text-success' : 'text-destructive'}`}>
+            <p className={`text-xs ${
+              stat.special === 'dividend' 
+                ? 'text-muted-foreground'
+                : stat.positive ? 'text-success' : 'text-destructive'
+            }`}>
               {stat.subValue}
             </p>
           )}

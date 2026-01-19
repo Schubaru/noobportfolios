@@ -1,1 +1,16 @@
 project_id = "tkdybvdbpdjlnguqgxrb"
+
+[functions.market-quote]
+verify_jwt = false
+
+[functions.market-search]
+verify_jwt = false
+
+[functions.market-fundamentals]
+verify_jwt = false
+
+[functions.market-profile]
+verify_jwt = false
+
+[functions.market-dividends]
+verify_jwt = false

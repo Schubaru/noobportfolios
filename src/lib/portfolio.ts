@@ -28,6 +28,14 @@ export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetric
   const allTimePLPercent = (allTimePL / portfolio.startingCash) * 100;
   const cumulativeReturn = allTimePLPercent;
   
+  // Calculate dividend income
+  const totalDividends = portfolio.totalDividendsEarned || 
+    (portfolio.dividendHistory || []).reduce((sum, d) => sum + d.totalAmount, 0);
+  
+  // Total return including dividends
+  const totalReturnWithDividends = allTimePL + totalDividends;
+  const totalReturnWithDividendsPercent = (totalReturnWithDividends / portfolio.startingCash) * 100;
+  
   return {
     totalValue,
     dailyPL,
@@ -35,6 +43,9 @@ export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetric
     allTimePL,
     allTimePLPercent,
     cumulativeReturn,
+    totalDividends,
+    totalReturnWithDividends,
+    totalReturnWithDividendsPercent,
   };
 };
 
