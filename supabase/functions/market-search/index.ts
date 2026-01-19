@@ -10,6 +10,42 @@ const cache = new Map<string, { data: unknown; expiry: number }>();
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Asset type mappings from Finnhub types
+function getAssetType(finnhubType: string, symbol: string): { type: string; assetClass: string } {
+  const upperType = finnhubType.toUpperCase();
+  const upperSymbol = symbol.toUpperCase();
+  
+  // ETF detection
+  if (upperType.includes('ETP') || upperType.includes('ETF') || upperType === 'ETF') {
+    return { type: 'ETF', assetClass: 'etf' };
+  }
+  
+  // REIT detection (common REIT indicators in name/symbol)
+  const reitSymbols = ['VNQ', 'O', 'SPG', 'AMT', 'PLD', 'CCI', 'EQIX', 'DLR', 'PSA', 'EXR', 'WELL', 'AVB', 'EQR', 'SCHH', 'IYR', 'RWR', 'XLRE'];
+  if (reitSymbols.includes(upperSymbol)) {
+    return { type: 'REIT', assetClass: 'reit' };
+  }
+  
+  // Bond ETF detection
+  const bondSymbols = ['BND', 'AGG', 'TLT', 'IEF', 'LQD', 'HYG', 'VCIT', 'VCSH', 'BSV', 'BIV', 'GOVT', 'MUB', 'TIP', 'SHY', 'SCHZ'];
+  if (bondSymbols.includes(upperSymbol)) {
+    return { type: 'Bond ETF', assetClass: 'bond' };
+  }
+  
+  // Common Stock
+  if (upperType === 'COMMON STOCK' || upperType.includes('STOCK')) {
+    return { type: 'Stock', assetClass: 'stock' };
+  }
+  
+  // ADR
+  if (upperType.includes('ADR')) {
+    return { type: 'ADR', assetClass: 'stock' };
+  }
+  
+  // Default to stock
+  return { type: finnhubType || 'Stock', assetClass: 'stock' };
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -73,17 +109,39 @@ Deno.serve(async (req) => {
     const data = await response.json();
 
     // Finnhub returns { count, result: [{ description, displaySymbol, symbol, type }] }
+    // Expanded filter to include ETFs, REITs, ADRs, and other tradeable securities
+    const allowedTypes = [
+      'COMMON STOCK',
+      'ETP',      // Exchange Traded Products (ETFs)
+      'ETF',
+      'ADR',      // American Depositary Receipts
+      'REIT',
+      'UNIT',     // Fund units
+    ];
+    
     const results = (data.result || [])
       .filter((item: { symbol: string; type: string }) => {
-        // Filter to US stocks primarily
-        return item.symbol && !item.symbol.includes('.') && item.type === 'Common Stock';
+        // Must have symbol
+        if (!item.symbol) return false;
+        
+        // Filter out non-US exchanges (symbols with dots like .L, .T, etc.)
+        // But allow some common formats
+        if (item.symbol.includes('.') && !item.symbol.endsWith('.U')) return false;
+        
+        // Check if type is in allowed list
+        const upperType = (item.type || '').toUpperCase();
+        return allowedTypes.some(allowed => upperType.includes(allowed));
       })
-      .slice(0, 10)
-      .map((item: { symbol: string; description: string; type: string }) => ({
-        symbol: item.symbol,
-        name: item.description,
-        type: item.type,
-      }));
+      .slice(0, 15) // Increased limit for better results
+      .map((item: { symbol: string; description: string; type: string }) => {
+        const { type, assetClass } = getAssetType(item.type, item.symbol);
+        return {
+          symbol: item.symbol,
+          name: item.description,
+          type,
+          assetClass,
+        };
+      });
 
     // Cache the result
     cache.set(cacheKey, {

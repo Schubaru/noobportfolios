@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { TrendingUp, TrendingDown, ChevronRight, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, ChevronRight, Sparkles, Coins } from 'lucide-react';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
 import { formatCurrency, formatPercent, formatPL } from '@/lib/portfolio';
 import { calculateDiversityScore, getDiversityColor } from '@/lib/diversity';
@@ -12,7 +12,8 @@ interface PortfolioCardProps {
 const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
   const diversity = calculateDiversityScore(portfolio.holdings);
   const isPositiveDaily = metrics.dailyPL >= 0;
-  const isPositiveAllTime = metrics.allTimePL >= 0;
+  const isPositiveTotalReturn = metrics.totalReturnWithDividends >= 0;
+  const hasDividends = metrics.totalDividends > 0;
 
   return (
     <Link
@@ -37,7 +38,7 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
         <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-1 transition-all" />
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Daily P/L</p>
           <div className={`flex items-center gap-1 ${isPositiveDaily ? 'text-success' : 'text-destructive'}`}>
@@ -51,14 +52,24 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
         </div>
 
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">All-Time P/L</p>
-          <div className={`flex items-center gap-1 ${isPositiveAllTime ? 'text-success' : 'text-destructive'}`}>
-            {isPositiveAllTime ? (
+          <p className="text-xs text-muted-foreground">Total Return</p>
+          <div className={`flex items-center gap-1 ${isPositiveTotalReturn ? 'text-success' : 'text-destructive'}`}>
+            {isPositiveTotalReturn ? (
               <TrendingUp className="w-3.5 h-3.5" />
             ) : (
               <TrendingDown className="w-3.5 h-3.5" />
             )}
-            <span className="text-sm font-medium">{formatPercent(metrics.allTimePLPercent)}</span>
+            <span className="text-sm font-medium">{formatPercent(metrics.totalReturnWithDividendsPercent)}</span>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">Dividends</p>
+          <div className={`flex items-center gap-1 ${hasDividends ? 'text-success' : 'text-muted-foreground'}`}>
+            <Coins className="w-3.5 h-3.5" />
+            <span className="text-sm font-medium">
+              {hasDividends ? formatCurrency(metrics.totalDividends) : '$0.00'}
+            </span>
           </div>
         </div>
 

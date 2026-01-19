@@ -43,6 +43,33 @@ function detectAssetClass(type: string): AssetClass {
   return 'stock';
 }
 
+// Curated list of high-quality suggested assets
+const SUGGESTED_ASSETS = [
+  // Blue-chip stocks with strong fundamentals
+  { symbol: 'AAPL', name: 'Apple Inc.', type: 'Stock', category: 'Tech Blue-Chip' },
+  { symbol: 'MSFT', name: 'Microsoft Corp.', type: 'Stock', category: 'Tech Blue-Chip' },
+  { symbol: 'JNJ', name: 'Johnson & Johnson', type: 'Stock', category: 'Healthcare' },
+  { symbol: 'JPM', name: 'JPMorgan Chase & Co.', type: 'Stock', category: 'Financials' },
+  
+  // Core ETFs for diversification
+  { symbol: 'VOO', name: 'Vanguard S&P 500 ETF', type: 'ETF', category: 'Index Fund' },
+  { symbol: 'VTI', name: 'Vanguard Total Stock Market ETF', type: 'ETF', category: 'Index Fund' },
+  { symbol: 'QQQ', name: 'Invesco QQQ Trust', type: 'ETF', category: 'Tech Index' },
+  
+  // Dividend-focused assets
+  { symbol: 'VYM', name: 'Vanguard High Dividend Yield ETF', type: 'ETF', category: 'Dividend' },
+  { symbol: 'SCHD', name: 'Schwab U.S. Dividend Equity ETF', type: 'ETF', category: 'Dividend' },
+  { symbol: 'O', name: 'Realty Income Corp.', type: 'REIT', category: 'Monthly Dividend' },
+  
+  // Bonds for stability
+  { symbol: 'BND', name: 'Vanguard Total Bond ETF', type: 'Bond ETF', category: 'Bonds' },
+  { symbol: 'AGG', name: 'iShares Core US Aggregate Bond', type: 'Bond ETF', category: 'Bonds' },
+  
+  // Growth stocks
+  { symbol: 'NVDA', name: 'NVIDIA Corp.', type: 'Stock', category: 'AI/Growth' },
+  { symbol: 'GOOGL', name: 'Alphabet Inc.', type: 'Stock', category: 'Tech Blue-Chip' },
+];
+
 const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol }: TradeModalProps) => {
   const [step, setStep] = useState<TradeStep>('search');
   const [tradeType, setTradeType] = useState<TradeType>('buy');
@@ -447,6 +474,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 )}
               </div>
 
+              {/* Search Results */}
               {searchResults.length > 0 && (
                 <div className="space-y-1 max-h-[300px] overflow-y-auto">
                   {searchResults.map((result) => (
@@ -469,10 +497,99 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 </div>
               )}
 
+              {/* No Results Message */}
               {searchQuery && !isSearching && searchResults.length === 0 && (
                 <p className="text-center text-muted-foreground py-4">
                   No results found for "{searchQuery}"
                 </p>
+              )}
+
+              {/* Suggested Assets - shown when no search query */}
+              {!searchQuery && searchResults.length === 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-muted-foreground">Suggested Assets</span>
+                    <span className="text-xs text-muted-foreground/60">• Quality picks for long-term portfolios</span>
+                  </div>
+                  
+                  {/* Group by category */}
+                  <div className="space-y-4 max-h-[350px] overflow-y-auto">
+                    {/* Index Funds */}
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">Index Funds</p>
+                      {SUGGESTED_ASSETS.filter(a => a.category === 'Index Fund' || a.category === 'Tech Index').map((asset) => (
+                        <button
+                          key={asset.symbol}
+                          onClick={() => handleSelectSymbol(asset.symbol)}
+                          className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left border border-transparent hover:border-border"
+                        >
+                          <div>
+                            <p className="font-semibold text-primary">{asset.symbol}</p>
+                            <p className="text-sm text-muted-foreground truncate max-w-[200px]">{asset.name}</p>
+                          </div>
+                          <span className="px-2 py-1 rounded-md bg-primary/10 text-primary text-xs">{asset.type}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Blue-Chip Stocks */}
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">Blue-Chip Stocks</p>
+                      {SUGGESTED_ASSETS.filter(a => a.category === 'Tech Blue-Chip' || a.category === 'Healthcare' || a.category === 'Financials').map((asset) => (
+                        <button
+                          key={asset.symbol}
+                          onClick={() => handleSelectSymbol(asset.symbol)}
+                          className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left border border-transparent hover:border-border"
+                        >
+                          <div>
+                            <p className="font-semibold text-primary">{asset.symbol}</p>
+                            <p className="text-sm text-muted-foreground truncate max-w-[200px]">{asset.name}</p>
+                          </div>
+                          <span className="px-2 py-1 rounded-md bg-muted text-xs">{asset.type}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Dividend Focused */}
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">Dividend Income</p>
+                      {SUGGESTED_ASSETS.filter(a => a.category === 'Dividend' || a.category === 'Monthly Dividend').map((asset) => (
+                        <button
+                          key={asset.symbol}
+                          onClick={() => handleSelectSymbol(asset.symbol)}
+                          className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left border border-transparent hover:border-border"
+                        >
+                          <div>
+                            <p className="font-semibold text-primary">{asset.symbol}</p>
+                            <p className="text-sm text-muted-foreground truncate max-w-[200px]">{asset.name}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-1 rounded-md bg-success/10 text-success text-xs">Dividend</span>
+                            <span className="px-2 py-1 rounded-md bg-muted text-xs">{asset.type}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Bonds */}
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">Bonds & Stability</p>
+                      {SUGGESTED_ASSETS.filter(a => a.category === 'Bonds').map((asset) => (
+                        <button
+                          key={asset.symbol}
+                          onClick={() => handleSelectSymbol(asset.symbol)}
+                          className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left border border-transparent hover:border-border"
+                        >
+                          <div>
+                            <p className="font-semibold text-primary">{asset.symbol}</p>
+                            <p className="text-sm text-muted-foreground truncate max-w-[200px]">{asset.name}</p>
+                          </div>
+                          <span className="px-2 py-1 rounded-md bg-muted text-xs">{asset.type}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}

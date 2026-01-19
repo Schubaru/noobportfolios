@@ -10,11 +10,13 @@ import AllocationChart from '@/components/AllocationChart';
 import DiversityScore from '@/components/DiversityScore';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
+import DividendBreakdown from '@/components/DividendBreakdown';
 import { getPortfolio, deletePortfolio, updatePortfolio } from '@/lib/storage';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { getMultipleQuotes } from '@/lib/market';
-import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
+import { Portfolio, PortfolioMetrics, Transaction, Holding, DividendInfo } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
+import { fetchDividendInfo, checkDividendPayments } from '@/lib/dividends';
 
 const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +29,7 @@ const PortfolioDetail = () => {
   const [tradeSymbol, setTradeSymbol] = useState<string | undefined>();
   const [selectedHolding, setSelectedHolding] = useState<Holding | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDividendBreakdown, setShowDividendBreakdown] = useState(false);
 
   const loadPortfolioData = useCallback(async () => {
     if (!id) return;
@@ -190,7 +193,11 @@ const PortfolioDetail = () => {
 
         {/* Metrics */}
         <div className="mb-6">
-          <MetricsGrid metrics={metrics} cash={portfolio.cash} />
+          <MetricsGrid 
+            metrics={metrics} 
+            cash={portfolio.cash} 
+            onDividendClick={() => setShowDividendBreakdown(true)}
+          />
         </div>
 
         {/* Holdings & Allocation */}
@@ -261,6 +268,13 @@ const PortfolioDetail = () => {
           setSelectedHolding(null);
           handleTrade(symbol);
         }}
+      />
+
+      {/* Dividend Breakdown Modal */}
+      <DividendBreakdown
+        isOpen={showDividendBreakdown}
+        onClose={() => setShowDividendBreakdown(false)}
+        portfolio={portfolio}
       />
 
       {/* Trade Modal */}
