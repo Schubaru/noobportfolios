@@ -37,6 +37,7 @@ export interface FinnhubSearchResult {
   symbol: string;
   name: string;
   type: string;
+  assetClass: string;
 }
 
 // API response wrapper

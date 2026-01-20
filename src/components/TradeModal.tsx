@@ -34,12 +34,42 @@ type TradeType = 'buy' | 'sell';
 type TradeStep = 'search' | 'details' | 'confirm';
 type InputMode = 'shares' | 'dollars';
 
-// Detect asset class from type string
-function detectAssetClass(type: string): AssetClass {
+// Known ETF symbols that may be misclassified by Finnhub
+const KNOWN_ETF_SYMBOLS = new Set([
+  'JEPI', 'JEPQ', 'SCHD', 'VYM', 'SPHD', 'DVY', 'HDV', 'DIVO', 'QYLD', 'XYLD',
+  'VOO', 'VTI', 'QQQ', 'SPY', 'IVV', 'VIG', 'VUG', 'VTV', 'VXUS', 'VEA',
+  'VWO', 'BND', 'AGG', 'TLT', 'IEF', 'LQD', 'HYG', 'VCIT', 'VCSH', 'BSV',
+  'VNQ', 'VNQI', 'SCHH', 'IYR', 'XLRE', 'RWR', 'VHT', 'XLV', 'XLF', 'XLE',
+  'XLK', 'XLI', 'XLP', 'XLY', 'XLB', 'XLU', 'ARKK', 'ARKW', 'ARKG', 'ARKF',
+]);
+
+// Known Bond ETF symbols
+const KNOWN_BOND_SYMBOLS = new Set([
+  'BND', 'AGG', 'TLT', 'IEF', 'LQD', 'HYG', 'VCIT', 'VCSH', 'BSV', 'BIV',
+  'GOVT', 'MUB', 'TIP', 'SHY', 'SCHZ', 'BNDX', 'EMB', 'JNK', 'VGIT', 'VGLT',
+]);
+
+// Known REIT symbols
+const KNOWN_REIT_SYMBOLS = new Set([
+  'VNQ', 'O', 'SPG', 'AMT', 'PLD', 'CCI', 'EQIX', 'DLR', 'PSA', 'EXR',
+  'WELL', 'AVB', 'EQR', 'SCHH', 'IYR', 'RWR', 'XLRE', 'STAG', 'NNN', 'WPC',
+]);
+
+// Detect asset class from type string and symbol
+function detectAssetClass(type: string, symbol?: string): AssetClass {
+  const upperSymbol = symbol?.toUpperCase() || '';
+  
+  // Check known symbol lists first (most reliable)
+  if (KNOWN_BOND_SYMBOLS.has(upperSymbol)) return 'bond';
+  if (KNOWN_REIT_SYMBOLS.has(upperSymbol)) return 'reit';
+  if (KNOWN_ETF_SYMBOLS.has(upperSymbol)) return 'etf';
+  
+  // Then check type string
   const lower = type.toLowerCase();
-  if (lower.includes('etf')) return 'etf';
-  if (lower.includes('reit')) return 'reit';
   if (lower.includes('bond')) return 'bond';
+  if (lower.includes('reit')) return 'reit';
+  if (lower.includes('etf') || lower.includes('etp')) return 'etf';
+  
   return 'stock';
 }
 
@@ -226,7 +256,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
         // Try Finnhub API first
         const apiResult = await searchSymbolsApi(searchQuery);
         if (apiResult.data && apiResult.data.length > 0) {
-          setSearchResults(apiResult.data);
+          // Ensure assetClass is properly set from API response
+          setSearchResults(apiResult.data.map(r => ({
+            ...r,
+            assetClass: r.assetClass || detectAssetClass(r.type, r.symbol),
+          })));
         } else {
           // Fall back to mock data
           const mockResults = await mockSearchSymbols(searchQuery);
@@ -234,6 +268,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
             symbol: r.symbol,
             name: r.name,
             type: r.type,
+            assetClass: detectAssetClass(r.type, r.symbol),
           })));
         }
       } catch {
@@ -243,6 +278,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
           symbol: r.symbol,
           name: r.name,
           type: r.type,
+          assetClass: detectAssetClass(r.type, r.symbol),
         })));
       } finally {
         setIsSearching(false);
@@ -353,8 +389,10 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
           currentPrice: price,
         };
       } else {
-        // Add new holding
-        const assetClass = selectedQuote?.assetClass || detectAssetClass(searchResults.find(r => r.symbol === symbolToUse)?.type || 'stock');
+        // Add new holding - prioritize search result's assetClass from API
+        const searchResult = searchResults.find(r => r.symbol === symbolToUse);
+        const assetClass = searchResult?.assetClass as AssetClass 
+          || detectAssetClass(searchResult?.type || 'stock', symbolToUse);
         const newHolding: Holding = {
           symbol: symbolToUse,
           name: nameToUse,
