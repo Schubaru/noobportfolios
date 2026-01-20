@@ -10,26 +10,54 @@ const cache = new Map<string, { data: unknown; expiry: number }>();
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Known ETF symbols that Finnhub may return as "COMMON STOCK"
+const ETF_SYMBOLS = new Set([
+  // Popular dividend/income ETFs
+  'JEPI', 'JEPQ', 'SCHD', 'VYM', 'SPHD', 'DVY', 'HDV', 'DIVO', 'QYLD', 'XYLD',
+  // Core index ETFs
+  'VOO', 'VTI', 'QQQ', 'SPY', 'IVV', 'VIG', 'VUG', 'VTV', 'VXUS', 'VEA', 'VWO',
+  // Sector ETFs
+  'VHT', 'XLV', 'XLF', 'XLE', 'XLK', 'XLI', 'XLP', 'XLY', 'XLB', 'XLU',
+  // ARK ETFs
+  'ARKK', 'ARKW', 'ARKG', 'ARKF', 'ARKQ',
+  // International
+  'EFA', 'EEM', 'IEFA', 'IEMG',
+]);
+
+// Known Bond ETF symbols
+const BOND_SYMBOLS = new Set([
+  'BND', 'AGG', 'TLT', 'IEF', 'LQD', 'HYG', 'VCIT', 'VCSH', 'BSV', 'BIV',
+  'GOVT', 'MUB', 'TIP', 'SHY', 'SCHZ', 'BNDX', 'EMB', 'JNK', 'VGIT', 'VGLT',
+]);
+
+// Known REIT symbols
+const REIT_SYMBOLS = new Set([
+  'VNQ', 'O', 'SPG', 'AMT', 'PLD', 'CCI', 'EQIX', 'DLR', 'PSA', 'EXR',
+  'WELL', 'AVB', 'EQR', 'SCHH', 'IYR', 'RWR', 'XLRE', 'STAG', 'NNN', 'WPC',
+  'VNQI', 'USRT', 'BBRE', 'REET',
+]);
+
 // Asset type mappings from Finnhub types
 function getAssetType(finnhubType: string, symbol: string): { type: string; assetClass: string } {
   const upperType = finnhubType.toUpperCase();
   const upperSymbol = symbol.toUpperCase();
   
-  // ETF detection
-  if (upperType.includes('ETP') || upperType.includes('ETF') || upperType === 'ETF') {
-    return { type: 'ETF', assetClass: 'etf' };
+  // Check known symbol lists FIRST (most reliable - overrides Finnhub type)
+  if (BOND_SYMBOLS.has(upperSymbol)) {
+    return { type: 'Bond ETF', assetClass: 'bond' };
   }
   
-  // REIT detection (common REIT indicators in name/symbol)
-  const reitSymbols = ['VNQ', 'O', 'SPG', 'AMT', 'PLD', 'CCI', 'EQIX', 'DLR', 'PSA', 'EXR', 'WELL', 'AVB', 'EQR', 'SCHH', 'IYR', 'RWR', 'XLRE'];
-  if (reitSymbols.includes(upperSymbol)) {
+  if (REIT_SYMBOLS.has(upperSymbol)) {
     return { type: 'REIT', assetClass: 'reit' };
   }
   
-  // Bond ETF detection
-  const bondSymbols = ['BND', 'AGG', 'TLT', 'IEF', 'LQD', 'HYG', 'VCIT', 'VCSH', 'BSV', 'BIV', 'GOVT', 'MUB', 'TIP', 'SHY', 'SCHZ'];
-  if (bondSymbols.includes(upperSymbol)) {
-    return { type: 'Bond ETF', assetClass: 'bond' };
+  if (ETF_SYMBOLS.has(upperSymbol)) {
+    return { type: 'ETF', assetClass: 'etf' };
+  }
+  
+  // Then check Finnhub type
+  if (upperType.includes('ETP') || upperType.includes('ETF') || upperType === 'ETF') {
+    return { type: 'ETF', assetClass: 'etf' };
   }
   
   // Common Stock

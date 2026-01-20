@@ -1,7 +1,36 @@
-import { Portfolio } from './types';
+import { Portfolio, AssetClass } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
 const STORAGE_KEY = 'noob_portfolios';
+
+// Known ETF symbols that may be misclassified
+const KNOWN_ETF_SYMBOLS = new Set([
+  'JEPI', 'JEPQ', 'SCHD', 'VYM', 'SPHD', 'DVY', 'HDV', 'DIVO', 'QYLD', 'XYLD',
+  'VOO', 'VTI', 'QQQ', 'SPY', 'IVV', 'VIG', 'VUG', 'VTV', 'VXUS', 'VEA',
+  'VWO', 'VHT', 'XLV', 'XLF', 'XLE', 'XLK', 'XLI', 'XLP', 'XLY', 'XLB', 'XLU',
+  'ARKK', 'ARKW', 'ARKG', 'ARKF',
+]);
+
+// Known Bond ETF symbols
+const KNOWN_BOND_SYMBOLS = new Set([
+  'BND', 'AGG', 'TLT', 'IEF', 'LQD', 'HYG', 'VCIT', 'VCSH', 'BSV', 'BIV',
+  'GOVT', 'MUB', 'TIP', 'SHY', 'SCHZ', 'BNDX', 'EMB', 'JNK', 'VGIT', 'VGLT',
+]);
+
+// Known REIT symbols
+const KNOWN_REIT_SYMBOLS = new Set([
+  'VNQ', 'O', 'SPG', 'AMT', 'PLD', 'CCI', 'EQIX', 'DLR', 'PSA', 'EXR',
+  'WELL', 'AVB', 'EQR', 'SCHH', 'IYR', 'RWR', 'XLRE', 'STAG', 'NNN', 'WPC',
+]);
+
+// Correct asset class based on known symbols
+function getCorrectAssetClass(symbol: string, currentClass: AssetClass): AssetClass {
+  const upperSymbol = symbol.toUpperCase();
+  if (KNOWN_BOND_SYMBOLS.has(upperSymbol)) return 'bond';
+  if (KNOWN_REIT_SYMBOLS.has(upperSymbol)) return 'reit';
+  if (KNOWN_ETF_SYMBOLS.has(upperSymbol)) return 'etf';
+  return currentClass;
+}
 
 export const loadPortfolios = (): Portfolio[] => {
   try {
@@ -15,11 +44,31 @@ export const loadPortfolios = (): Portfolio[] => {
     let portfolios: Portfolio[] = JSON.parse(stored);
     
     // Migrate: rename "Example Portfolio" to "N00B Portfolio"
+    // Migrate: fix asset class for known ETFs/REITs/Bonds
     let needsSave = false;
     portfolios = portfolios.map(p => {
+      let portfolioModified = false;
+      
+      // Name migration
       if (p.isExample && p.name === 'Example Portfolio') {
         needsSave = true;
-        return { ...p, name: 'N00B Portfolio' };
+        portfolioModified = true;
+        p = { ...p, name: 'N00B Portfolio' };
+      }
+      
+      // Asset class migration
+      const updatedHoldings = p.holdings.map(h => {
+        const correctClass = getCorrectAssetClass(h.symbol, h.assetClass);
+        if (correctClass !== h.assetClass) {
+          needsSave = true;
+          portfolioModified = true;
+          return { ...h, assetClass: correctClass };
+        }
+        return h;
+      });
+      
+      if (portfolioModified) {
+        return { ...p, holdings: updatedHoldings };
       }
       return p;
     });
