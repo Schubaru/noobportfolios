@@ -62,6 +62,7 @@ export const usePortfolios = () => {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [hasFetched, setHasFetched] = useState(false);
 
   const transformPortfolio = (
     dbPortfolio: DbPortfolio,
@@ -171,6 +172,7 @@ export const usePortfolios = () => {
       console.error('Error fetching portfolios:', error);
     } finally {
       setIsLoading(false);
+      setHasFetched(true);
     }
   }, [user]);
 
@@ -279,20 +281,21 @@ export const usePortfolios = () => {
   };
 
   useEffect(() => {
-    if (user) {
+    if (user && !hasFetched) {
       fetchPortfolios();
-    } else {
+    } else if (!user) {
       setPortfolios([]);
       setIsLoading(false);
+      setHasFetched(false);
     }
-  }, [user, fetchPortfolios]);
+  }, [user, hasFetched, fetchPortfolios]);
 
-  // Initialize example portfolio for new users
+  // Initialize example portfolio for new users - only after first fetch completes
   useEffect(() => {
-    if (!isLoading && user && portfolios.length === 0 && !isInitializing) {
+    if (hasFetched && !isLoading && user && portfolios.length === 0 && !isInitializing) {
       initializeExamplePortfolio();
     }
-  }, [isLoading, user, portfolios.length, isInitializing, initializeExamplePortfolio]);
+  }, [hasFetched, isLoading, user, portfolios.length, isInitializing, initializeExamplePortfolio]);
 
   return {
     portfolios,
