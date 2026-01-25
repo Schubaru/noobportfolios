@@ -200,3 +200,23 @@ export function formatMetricCurrency(num: number | null): string {
   if (num === null || num === undefined) return 'N/A';
   return `$${num.toFixed(2)}`;
 }
+
+// Fetch multiple quotes in parallel (for portfolio refresh)
+export async function fetchMultipleQuotes(symbols: string[]): Promise<Map<string, FinnhubQuote>> {
+  const quotes = new Map<string, FinnhubQuote>();
+  
+  const results = await Promise.all(
+    symbols.map(async (symbol) => {
+      const result = await fetchQuote(symbol);
+      return { symbol, quote: result.data };
+    })
+  );
+  
+  results.forEach(({ symbol, quote }) => {
+    if (quote) {
+      quotes.set(symbol.toUpperCase(), quote);
+    }
+  });
+  
+  return quotes;
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, TrendingUp, TrendingDown, ArrowRightLeft } from 'lucide-react';
-import { Holding, QuoteData } from '@/lib/types';
-import { getQuote } from '@/lib/market';
+import { Holding } from '@/lib/types';
+import { fetchQuote, FinnhubQuote } from '@/lib/finnhub';
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { getAssetClassLabel, getAssetClassColor } from '@/lib/allocation';
 
@@ -13,14 +13,14 @@ interface AssetDetailModalProps {
 }
 
 const AssetDetailModal = ({ isOpen, onClose, holding, onTrade }: AssetDetailModalProps) => {
-  const [quote, setQuote] = useState<QuoteData | null>(null);
+  const [quote, setQuote] = useState<FinnhubQuote | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen && holding) {
       setIsLoading(true);
-      getQuote(holding.symbol).then((data) => {
-        setQuote(data);
+      fetchQuote(holding.symbol).then((result) => {
+        setQuote(result.data);
         setIsLoading(false);
       });
     } else {
@@ -30,10 +30,10 @@ const AssetDetailModal = ({ isOpen, onClose, holding, onTrade }: AssetDetailModa
 
   if (!isOpen || !holding) return null;
 
-  const currentPrice = quote?.currentPrice || holding.currentPrice || holding.avgCost;
-  const previousClose = quote?.previousClose || holding.previousClose || holding.avgCost;
-  const dayChange = currentPrice - previousClose;
-  const dayChangePercent = (dayChange / previousClose) * 100;
+  const currentPrice = quote?.price || holding.currentPrice || holding.avgCost;
+  const previousClose = quote?.prevClose || holding.previousClose || holding.avgCost;
+  const dayChange = quote?.change ?? (currentPrice - previousClose);
+  const dayChangePercent = quote?.changePct ?? ((dayChange / previousClose) * 100);
   const isPositiveDay = dayChange >= 0;
 
   const positionValue = currentPrice * holding.shares;
@@ -103,7 +103,7 @@ const AssetDetailModal = ({ isOpen, onClose, holding, onTrade }: AssetDetailModa
             <div className="grid grid-cols-2 gap-3 mb-6">
               <div className="p-3 rounded-lg bg-secondary/50">
                 <p className="text-xs text-muted-foreground mb-1">Open</p>
-                <p className="font-medium">{quote?.open ? formatCurrency(quote.open) : '—'}</p>
+                <p className="font-medium">{quote?.dayOpen ? formatCurrency(quote.dayOpen) : '—'}</p>
               </div>
               <div className="p-3 rounded-lg bg-secondary/50">
                 <p className="text-xs text-muted-foreground mb-1">Previous Close</p>
@@ -111,15 +111,11 @@ const AssetDetailModal = ({ isOpen, onClose, holding, onTrade }: AssetDetailModa
               </div>
               <div className="p-3 rounded-lg bg-secondary/50">
                 <p className="text-xs text-muted-foreground mb-1">Day High</p>
-                <p className="font-medium">{quote?.high ? formatCurrency(quote.high) : '—'}</p>
+                <p className="font-medium">{quote?.dayHigh ? formatCurrency(quote.dayHigh) : '—'}</p>
               </div>
               <div className="p-3 rounded-lg bg-secondary/50">
                 <p className="text-xs text-muted-foreground mb-1">Day Low</p>
-                <p className="font-medium">{quote?.low ? formatCurrency(quote.low) : '—'}</p>
-              </div>
-              <div className="col-span-2 p-3 rounded-lg bg-secondary/50">
-                <p className="text-xs text-muted-foreground mb-1">Volume</p>
-                <p className="font-medium">{quote?.volume ? quote.volume.toLocaleString() : '—'}</p>
+                <p className="font-medium">{quote?.dayLow ? formatCurrency(quote.dayLow) : '—'}</p>
               </div>
             </div>
 

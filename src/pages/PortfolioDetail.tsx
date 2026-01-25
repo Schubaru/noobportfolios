@@ -13,7 +13,7 @@ import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
 import { getPortfolio, deletePortfolio, updatePortfolio } from '@/lib/storage';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
-import { getMultipleQuotes } from '@/lib/market';
+import { fetchMultipleQuotes } from '@/lib/finnhub';
 import { Portfolio, PortfolioMetrics, Transaction, Holding, DividendInfo } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
 import { fetchDividendInfo, checkDividendPayments } from '@/lib/dividends';
@@ -40,18 +40,18 @@ const PortfolioDetail = () => {
       return;
     }
 
-    // Update prices for holdings
+    // Update prices for holdings using real Finnhub API
     if (data.holdings.length > 0) {
       const symbols = data.holdings.map(h => h.symbol);
-      const quotes = await getMultipleQuotes(symbols);
+      const quotes = await fetchMultipleQuotes(symbols);
       
       data.holdings = data.holdings.map(h => {
-        const quote = quotes.get(h.symbol);
+        const quote = quotes.get(h.symbol.toUpperCase());
         if (quote) {
           return {
             ...h,
-            currentPrice: quote.currentPrice,
-            previousClose: quote.previousClose,
+            currentPrice: quote.price,
+            previousClose: quote.prevClose,
           };
         }
         return h;

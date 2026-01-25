@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Portfolio, QuoteData, Holding, AssetClass } from '@/lib/types';
-import { searchSymbols as mockSearchSymbols, getQuote as mockGetQuote } from '@/lib/market';
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { updatePortfolio } from '@/lib/storage';
 import { 
@@ -243,7 +242,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     };
   }, [step, refreshQuote]);
 
-  // Search with debounce - try Finnhub first, fall back to mock
+  // Search with debounce - use real Finnhub API only
   useEffect(() => {
     const searchTickers = async () => {
       if (searchQuery.length < 1) {
@@ -253,7 +252,6 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
 
       setIsSearching(true);
       try {
-        // Try Finnhub API first
         const apiResult = await searchSymbolsApi(searchQuery);
         if (apiResult.data && apiResult.data.length > 0) {
           // Ensure assetClass is properly set from API response
@@ -262,24 +260,13 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
             assetClass: r.assetClass || detectAssetClass(r.type, r.symbol),
           })));
         } else {
-          // Fall back to mock data
-          const mockResults = await mockSearchSymbols(searchQuery);
-          setSearchResults(mockResults.map(r => ({
-            symbol: r.symbol,
-            name: r.name,
-            type: r.type,
-            assetClass: detectAssetClass(r.type, r.symbol),
-          })));
+          // No results from API - show empty state
+          setSearchResults([]);
         }
       } catch {
-        // Fall back to mock on error
-        const mockResults = await mockSearchSymbols(searchQuery);
-        setSearchResults(mockResults.map(r => ({
-          symbol: r.symbol,
-          name: r.name,
-          type: r.type,
-          assetClass: detectAssetClass(r.type, r.symbol),
-        })));
+        // API error - show empty state
+        setSearchResults([]);
+        console.error('Search API error');
       } finally {
         setIsSearching(false);
       }
@@ -295,24 +282,19 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     
     try {
       // Start fetching real market data
-      fetchMarketData(symbol);
+      await fetchMarketData(symbol);
       
-      // Also get mock quote for fallback/trade calculations
-      const mockQuote = await mockGetQuote(symbol);
-      if (mockQuote) {
-        setSelectedQuote(mockQuote);
-      } else {
-        // Create a minimal quote from the symbol for trading
-        setSelectedQuote({
-          symbol,
-          name: profile?.name || symbol,
-          currentPrice: 0,
-          previousClose: 0,
-          dayChange: 0,
-          dayChangePercent: 0,
-          assetClass: 'stock',
-        });
-      }
+      // Create a placeholder quote for trade calculations (will be populated by real data)
+      const searchResult = searchResults.find(r => r.symbol === symbol);
+      setSelectedQuote({
+        symbol,
+        name: searchResult?.name || symbol,
+        currentPrice: 0,
+        previousClose: 0,
+        dayChange: 0,
+        dayChangePercent: 0,
+        assetClass: detectAssetClass(searchResult?.type || 'stock', symbol),
+      });
       
       setStep('details');
       
