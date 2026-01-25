@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info } from 'lucide-react';
+import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { v4 as uuidv4 } from 'uuid';
 import { Portfolio, QuoteData, Holding, AssetClass } from '@/lib/types';
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
@@ -1143,10 +1149,40 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
 };
 
 // Helper component for fundamentals grid items
+// Tooltip descriptions for fundamental metrics
+const FUNDAMENTAL_TOOLTIPS: Record<string, string> = {
+  'Market Cap': 'The total value of all the company\'s shares combined. Bigger companies usually have larger market caps.',
+  'P/E (TTM)': 'Shows how expensive a stock is compared to how much money the company is making. A higher number usually means higher expectations.',
+  'EPS (TTM)': 'How much profit the company makes per share of stock. It\'s a simple way to see if the company is profitable.',
+  'Dividend Yield': 'How much cash the company pays investors each year, shown as a percentage of the stock price.',
+  '52W High': 'The highest price the stock reached in the last year.',
+  '52W Low': 'The lowest price the stock reached in the last year.',
+  'Beta': 'How much the stock tends to move compared to the overall market. Higher means more ups and downs.',
+  'Avg Vol (10D)': 'The average number of shares traded per day over the last 10 days. It shows how actively the stock is traded.',
+};
+
 function FundamentalItem({ label, value, loading }: { label: string; value: string | null; loading: boolean }) {
+  const tooltip = FUNDAMENTAL_TOOLTIPS[label];
+  
   return (
     <div className="space-y-1">
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="flex items-center gap-1">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        {tooltip && (
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+                  <HelpCircle className="w-3 h-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[220px] text-xs">
+                <p>{tooltip}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
       {loading ? (
         <Skeleton className="h-5 w-16" />
       ) : (
