@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { Portfolio, QuoteData, Holding, AssetClass, DividendInfo } from '@/lib/types';
+import { Portfolio, QuoteData, Holding, AssetClass } from '@/lib/types';
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { updatePortfolio } from '@/lib/storage';
 import { 
@@ -19,7 +19,6 @@ import {
   FinnhubProfile,
   FinnhubSearchResult
 } from '@/lib/finnhub';
-import { fetchDividendInfo, formatDividendFrequency } from '@/lib/dividends';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface TradeModalProps {
@@ -154,11 +153,9 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
   const [quote, setQuote] = useState<FinnhubQuote | null>(null);
   const [fundamentals, setFundamentals] = useState<FinnhubFundamentals | null>(null);
   const [profile, setProfile] = useState<FinnhubProfile | null>(null);
-  const [dividendInfo, setDividendInfo] = useState<DividendInfo | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
   const [loadingFundamentals, setLoadingFundamentals] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(false);
-  const [loadingDividends, setLoadingDividends] = useState(false);
   
   // Legacy quote for trade calculations (fallback)
   const [selectedQuote, setSelectedQuote] = useState<QuoteData | null>(null);
@@ -206,7 +203,6 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setQuote(null);
     setFundamentals(null);
     setProfile(null);
-    setDividendInfo(null);
     setSelectedQuote(null);
     setShares('');
     setDollarAmount('');
@@ -215,7 +211,6 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setLoadingQuote(false);
     setLoadingFundamentals(false);
     setLoadingProfile(false);
-    setLoadingDividends(false);
     lastFetchedSymbol.current = null;
     
     if (quoteRefreshRef.current) {
@@ -232,13 +227,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setLoadingQuote(true);
     setLoadingFundamentals(true);
     setLoadingProfile(true);
-    setLoadingDividends(true);
     
-    const [quoteResult, fundamentalsResult, profileResult, dividendResult] = await Promise.all([
+    const [quoteResult, fundamentalsResult, profileResult] = await Promise.all([
       fetchQuote(symbol),
       fetchFundamentals(symbol),
       fetchProfile(symbol),
-      fetchDividendInfo(symbol),
     ]);
     
     if (quoteResult.data) {
@@ -257,11 +250,6 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
       setProfile(profileResult.data);
     }
     setLoadingProfile(false);
-    
-    if (dividendResult) {
-      setDividendInfo(dividendResult);
-    }
-    setLoadingDividends(false);
   }, []);
 
   // Refresh quote only (every 10 seconds while modal is open)
@@ -742,11 +730,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 loading={loadingProfile}
               />
 
-              {/* Dividend Information */}
+              {/* Dividend Information - uses fundamentals data */}
               <DividendInfoSection 
-                dividendInfo={dividendInfo}
+                dividendYield={fundamentals?.dividendYieldTTM ?? null}
                 currentPrice={displayPrice}
-                loading={loadingDividends}
+                loading={loadingFundamentals}
               />
 
               {/* Key Fundamentals Grid */}
@@ -1052,13 +1040,13 @@ function AssetAboutSection({
   );
 }
 
-// Dividend information section
+// Dividend information section - uses fundamentals data since dividend API requires premium
 function DividendInfoSection({ 
-  dividendInfo, 
+  dividendYield, 
   currentPrice,
   loading 
 }: { 
-  dividendInfo: DividendInfo | null; 
+  dividendYield: number | null; 
   currentPrice: number;
   loading: boolean;
 }) {
@@ -1075,8 +1063,8 @@ function DividendInfoSection({
     );
   }
 
-  // No dividend info or no dividends paid
-  const paysDividends = dividendInfo && dividendInfo.dividends && dividendInfo.dividends.length > 0;
+  // Check if this asset pays dividends based on yield from fundamentals
+  const paysDividends = dividendYield !== null && dividendYield > 0;
   
   if (!paysDividends) {
     return (
@@ -1094,20 +1082,8 @@ function DividendInfoSection({
     );
   }
 
-  // Calculate yield if we have price
-  const calculatedYield = dividendInfo.annualDividend && currentPrice > 0 
-    ? (dividendInfo.annualDividend / currentPrice) * 100 
-    : dividendInfo.dividendYield;
-
-  const frequencyLabel = formatDividendFrequency(dividendInfo.frequency);
-  
-  // Friendly frequency explanation
-  const frequencyExplanation: Record<string, string> = {
-    'Monthly': 'You would receive dividend payments every month.',
-    'Quarterly': 'You would receive dividend payments 4 times per year.',
-    'Semi-Annual': 'You would receive dividend payments twice per year.',
-    'Annual': 'You would receive one dividend payment per year.',
-  };
+  // Estimate annual dividend from yield and price
+  const estimatedAnnualDividend = currentPrice > 0 ? (dividendYield / 100) * currentPrice : null;
 
   return (
     <div className="p-4 rounded-xl bg-success/5 border border-success/20">
@@ -1118,28 +1094,21 @@ function DividendInfoSection({
       
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Payment Frequency</span>
-          <span className="text-sm font-medium text-foreground">{frequencyLabel}</span>
+          <span className="text-sm text-muted-foreground">Current Yield</span>
+          <span className="text-sm font-medium text-success">{dividendYield.toFixed(2)}%</span>
         </div>
         
-        {dividendInfo.annualDividend && (
+        {estimatedAnnualDividend && (
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Annual Dividend</span>
-            <span className="text-sm font-medium text-foreground">${dividendInfo.annualDividend.toFixed(2)}/share</span>
-          </div>
-        )}
-        
-        {calculatedYield && (
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Current Yield</span>
-            <span className="text-sm font-medium text-success">{calculatedYield.toFixed(2)}%</span>
+            <span className="text-sm text-muted-foreground">Est. Annual Dividend</span>
+            <span className="text-sm font-medium text-foreground">~${estimatedAnnualDividend.toFixed(2)}/share</span>
           </div>
         )}
       </div>
 
       <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-success/10 flex items-start gap-1">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0 text-success/70" />
-        <span>{frequencyExplanation[frequencyLabel] || 'This asset pays dividends to shareholders.'} Dividends are cash payments that companies distribute from their profits.</span>
+        <span>This asset pays dividends to shareholders. Dividends are cash payments that companies distribute from their profits, typically paid quarterly.</span>
       </p>
     </div>
   );
