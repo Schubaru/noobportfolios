@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { X, Briefcase } from 'lucide-react';
-import { createPortfolio } from '@/lib/storage';
-import { Portfolio } from '@/lib/types';
 
 interface CreatePortfolioModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: (portfolio: Portfolio) => void;
+  onCreated: (name: string) => void;
 }
 
 const CreatePortfolioModal = ({ isOpen, onClose, onCreated }: CreatePortfolioModalProps) => {
@@ -20,15 +18,11 @@ const CreatePortfolioModal = ({ isOpen, onClose, onCreated }: CreatePortfolioMod
     if (!name.trim()) return;
 
     setIsCreating(true);
-    
-    // Small delay for UX
     await new Promise(resolve => setTimeout(resolve, 300));
     
-    const portfolio = createPortfolio(name.trim());
+    onCreated(name.trim());
     setName('');
     setIsCreating(false);
-    onCreated(portfolio);
-    onClose();
   };
 
   return (

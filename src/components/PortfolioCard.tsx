@@ -1,19 +1,27 @@
 import { Link } from 'react-router-dom';
-import { TrendingUp, TrendingDown, ChevronRight, Sparkles, Coins } from 'lucide-react';
+import { TrendingUp, TrendingDown, ChevronRight, Sparkles, Coins, RefreshCw } from 'lucide-react';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
 import { formatCurrency, formatPercent, formatPL } from '@/lib/portfolio';
 import { calculateDiversityScore, getDiversityColor } from '@/lib/diversity';
+import { Badge } from '@/components/ui/badge';
 
 interface PortfolioCardProps {
   portfolio: Portfolio;
   metrics: PortfolioMetrics;
+  onRegenerate?: () => void;
 }
 
-const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
+const PortfolioCard = ({ portfolio, metrics, onRegenerate }: PortfolioCardProps) => {
   const diversity = calculateDiversityScore(portfolio.holdings);
   const isPositiveDaily = metrics.dailyPL >= 0;
   const isPositiveTotalReturn = metrics.totalReturnWithDividends >= 0;
   const hasDividends = metrics.totalDividends > 0;
+
+  const handleRegenerateClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onRegenerate?.();
+  };
 
   return (
     <Link
@@ -22,20 +30,31 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
     >
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="text-lg font-semibold truncate">{portfolio.name}</h3>
             {portfolio.isExample && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs font-medium">
+              <Badge variant="secondary" className="flex items-center gap-1 text-xs">
                 <Sparkles className="w-3 h-3" />
                 Example
-              </span>
+              </Badge>
             )}
           </div>
           <p className="text-2xl font-bold text-foreground">
             {formatCurrency(metrics.totalValue)}
           </p>
         </div>
-        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-1 transition-all" />
+        <div className="flex items-center gap-2">
+          {portfolio.isExample && onRegenerate && (
+            <button
+              onClick={handleRegenerateClick}
+              className="p-2 rounded-lg bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              title="Regenerate with today's top picks"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          )}
+          <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-1 transition-all" />
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-3">

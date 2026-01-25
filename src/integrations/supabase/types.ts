@@ -14,7 +14,254 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      daily_picks: {
+        Row: {
+          created_at: string
+          id: string
+          pick_date: string
+          scoring_snapshot: Json | null
+          tickers: Json
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          pick_date: string
+          scoring_snapshot?: Json | null
+          tickers: Json
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          pick_date?: string
+          scoring_snapshot?: Json | null
+          tickers?: Json
+        }
+        Relationships: []
+      }
+      dividend_history: {
+        Row: {
+          dividend_per_share: number
+          ex_date: string | null
+          id: string
+          name: string
+          paid_at: string
+          pay_date: string | null
+          portfolio_id: string
+          shares: number
+          symbol: string
+          total_amount: number
+        }
+        Insert: {
+          dividend_per_share: number
+          ex_date?: string | null
+          id?: string
+          name: string
+          paid_at?: string
+          pay_date?: string | null
+          portfolio_id: string
+          shares: number
+          symbol: string
+          total_amount: number
+        }
+        Update: {
+          dividend_per_share?: number
+          ex_date?: string | null
+          id?: string
+          name?: string
+          paid_at?: string
+          pay_date?: string | null
+          portfolio_id?: string
+          shares?: number
+          symbol?: string
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dividend_history_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      holdings: {
+        Row: {
+          asset_class: string
+          avg_cost: number
+          created_at: string
+          id: string
+          name: string
+          portfolio_id: string
+          shares: number
+          symbol: string
+          updated_at: string
+        }
+        Insert: {
+          asset_class?: string
+          avg_cost: number
+          created_at?: string
+          id?: string
+          name: string
+          portfolio_id: string
+          shares: number
+          symbol: string
+          updated_at?: string
+        }
+        Update: {
+          asset_class?: string
+          avg_cost?: number
+          created_at?: string
+          id?: string
+          name?: string
+          portfolio_id?: string
+          shares?: number
+          symbol?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "holdings_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      portfolios: {
+        Row: {
+          cash: number
+          created_at: string
+          created_by_system: boolean
+          id: string
+          is_example: boolean
+          name: string
+          starting_cash: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cash?: number
+          created_at?: string
+          created_by_system?: boolean
+          id?: string
+          is_example?: boolean
+          name: string
+          starting_cash?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cash?: number
+          created_at?: string
+          created_by_system?: boolean
+          id?: string
+          is_example?: boolean
+          name?: string
+          starting_cash?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      transactions: {
+        Row: {
+          executed_at: string
+          id: string
+          name: string
+          portfolio_id: string
+          price: number
+          shares: number
+          symbol: string
+          total: number
+          type: string
+        }
+        Insert: {
+          executed_at?: string
+          id?: string
+          name: string
+          portfolio_id: string
+          price: number
+          shares: number
+          symbol: string
+          total: number
+          type: string
+        }
+        Update: {
+          executed_at?: string
+          id?: string
+          name?: string
+          portfolio_id?: string
+          price?: number
+          shares?: number
+          symbol?: string
+          total?: number
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      value_history: {
+        Row: {
+          id: string
+          portfolio_id: string
+          recorded_at: string
+          value: number
+        }
+        Insert: {
+          id?: string
+          portfolio_id: string
+          recorded_at?: string
+          value: number
+        }
+        Update: {
+          id?: string
+          portfolio_id?: string
+          recorded_at?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "value_history_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

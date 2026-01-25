@@ -14,3 +14,12 @@ verify_jwt = false
 
 [functions.market-dividends]
 verify_jwt = false
+
+[functions.get-top-growth-picks]
+verify_jwt = false
+
+[functions.initialize-portfolio]
+verify_jwt = false
+
+[functions.regenerate-portfolio]
+verify_jwt = false
