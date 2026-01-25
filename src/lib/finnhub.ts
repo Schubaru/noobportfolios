@@ -202,22 +202,47 @@ export function formatMetricCurrency(num: number | null): string {
   return `$${num.toFixed(2)}`;
 }
 
-// Fetch multiple quotes in parallel (for portfolio refresh)
+// Client-side quote cache to avoid hammering the API
+const quoteCache = new Map<string, { quote: FinnhubQuote; timestamp: number }>();
+const QUOTE_CACHE_TTL = 30000; // 30 seconds cache
+
+// Helper to delay between requests
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Fetch multiple quotes sequentially with throttling to avoid rate limits
 export async function fetchMultipleQuotes(symbols: string[]): Promise<Map<string, FinnhubQuote>> {
   const quotes = new Map<string, FinnhubQuote>();
+  const now = Date.now();
   
-  const results = await Promise.all(
-    symbols.map(async (symbol) => {
-      const result = await fetchQuote(symbol);
-      return { symbol, quote: result.data };
-    })
-  );
+  // Filter out symbols we already have cached
+  const symbolsToFetch: string[] = [];
   
-  results.forEach(({ symbol, quote }) => {
-    if (quote) {
-      quotes.set(symbol.toUpperCase(), quote);
+  for (const symbol of symbols) {
+    const cached = quoteCache.get(symbol.toUpperCase());
+    if (cached && (now - cached.timestamp) < QUOTE_CACHE_TTL) {
+      // Use cached quote
+      quotes.set(symbol.toUpperCase(), cached.quote);
+    } else {
+      symbolsToFetch.push(symbol);
     }
-  });
+  }
+  
+  // Fetch remaining symbols sequentially with small delay to avoid rate limits
+  for (let i = 0; i < symbolsToFetch.length; i++) {
+    const symbol = symbolsToFetch[i];
+    
+    // Add delay between requests (except for the first one)
+    if (i > 0) {
+      await delay(200); // 200ms between requests = max 5 requests/second
+    }
+    
+    const result = await fetchQuote(symbol);
+    if (result.data) {
+      quotes.set(symbol.toUpperCase(), result.data);
+      // Cache the result
+      quoteCache.set(symbol.toUpperCase(), { quote: result.data, timestamp: now });
+    }
+  }
   
   return quotes;
 }
