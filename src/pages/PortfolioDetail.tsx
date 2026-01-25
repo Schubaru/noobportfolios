@@ -31,8 +31,9 @@ const PortfolioDetail = () => {
   const [selectedHolding, setSelectedHolding] = useState<Holding | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDividendBreakdown, setShowDividendBreakdown] = useState(false);
+  const [hasFetchedPrices, setHasFetchedPrices] = useState(false);
 
-  const loadPortfolioData = useCallback(async () => {
+  const loadPortfolioData = useCallback(async (forceRefresh = false) => {
     if (!id) return;
     
     // Get portfolio from the hook's state
@@ -42,6 +43,12 @@ const PortfolioDetail = () => {
       if (!portfoliosLoading) {
         navigate('/');
       }
+      return;
+    }
+
+    // Skip fetching prices if we already have them and this isn't a refresh
+    if (hasFetchedPrices && !forceRefresh) {
+      setIsLoading(false);
       return;
     }
 
@@ -69,14 +76,15 @@ const PortfolioDetail = () => {
     setPortfolio(portfolioWithPrices);
     setMetrics(calculatePortfolioMetrics(portfolioWithPrices));
     setIsLoading(false);
-  }, [id, getPortfolio, portfoliosLoading, navigate]);
+    setHasFetchedPrices(true);
+  }, [id, getPortfolio, portfoliosLoading, navigate, hasFetchedPrices]);
 
-  // Load when portfolios are ready
+  // Load when portfolios are ready - only once
   useEffect(() => {
-    if (!portfoliosLoading && id) {
+    if (!portfoliosLoading && id && !hasFetchedPrices) {
       loadPortfolioData();
     }
-  }, [portfoliosLoading, id, loadPortfolioData]);
+  }, [portfoliosLoading, id, hasFetchedPrices, loadPortfolioData]);
 
   // Refresh prices periodically
   useEffect(() => {
@@ -92,7 +100,7 @@ const PortfolioDetail = () => {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await fetchPortfolios(); // Refresh from database
-    await loadPortfolioData(); // Then load with fresh quotes
+    await loadPortfolioData(true); // Force refresh with fresh quotes
     setIsRefreshing(false);
   };
 
