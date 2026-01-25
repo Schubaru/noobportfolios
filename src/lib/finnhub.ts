@@ -17,6 +17,7 @@ export interface FinnhubFundamentals {
   peTTM: number | null;
   epsTTM: number | null;
   dividendYieldTTM: number | null;
+  dividendsPerShareTTM: number | null;
   week52High: number | null;
   week52Low: number | null;
   beta: number | null;

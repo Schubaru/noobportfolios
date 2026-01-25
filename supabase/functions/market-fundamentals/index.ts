@@ -81,6 +81,7 @@ Deno.serve(async (req) => {
       peTTM: metrics.peNormalizedAnnual ?? metrics.peTTM ?? null,
       epsTTM: metrics.epsNormalizedAnnual ?? metrics.epsTTM ?? null,
       dividendYieldTTM: metrics.dividendYieldIndicatedAnnual ?? null,
+      dividendsPerShareTTM: metrics.dividendsPerShareTTM ?? null,
       week52High: metrics['52WeekHigh'] ?? null,
       week52Low: metrics['52WeekLow'] ?? null,
       beta: metrics.beta ?? null,
