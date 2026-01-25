@@ -956,61 +956,64 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 </div>
               </div>
 
-              {/* Trade Type Toggle */}
-              <div className="flex rounded-xl bg-secondary p-1">
-                <button
-                  onClick={() => setTradeType('buy')}
-                  className={`flex-1 py-2 rounded-lg font-medium transition-all ${
-                    tradeType === 'buy' 
-                      ? 'bg-primary text-primary-foreground' 
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Buy
-                </button>
-                <button
-                  onClick={() => setTradeType('sell')}
-                  disabled={!existingHolding}
-                  className={`flex-1 py-2 rounded-lg font-medium transition-all ${
-                    tradeType === 'sell' 
-                      ? 'bg-destructive text-destructive-foreground' 
-                      : 'text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed'
-                  }`}
-                >
-                  Sell
-                </button>
-              </div>
+              {/* Toggle Controls - Side by Side */}
+              <div className="flex gap-2">
+                {/* Trade Type Toggle */}
+                <div className="flex flex-1 rounded-lg bg-secondary p-0.5">
+                  <button
+                    onClick={() => setTradeType('buy')}
+                    className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${
+                      tradeType === 'buy' 
+                        ? 'bg-primary text-primary-foreground' 
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Buy
+                  </button>
+                  <button
+                    onClick={() => setTradeType('sell')}
+                    disabled={!existingHolding}
+                    className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${
+                      tradeType === 'sell' 
+                        ? 'bg-destructive text-destructive-foreground' 
+                        : 'text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed'
+                    }`}
+                  >
+                    Sell
+                  </button>
+                </div>
 
-              {/* Input Mode Toggle */}
-              <div className="flex rounded-xl bg-muted p-1">
-                <button
-                  onClick={() => {
-                    setInputMode('shares');
-                    setDollarAmount('');
-                  }}
-                  className={`flex-1 py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-                    inputMode === 'shares' 
-                      ? 'bg-secondary text-foreground shadow-sm' 
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Hash className="w-4 h-4" />
-                  Shares
-                </button>
-                <button
-                  onClick={() => {
-                    setInputMode('dollars');
-                    setShares('');
-                  }}
-                  className={`flex-1 py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-                    inputMode === 'dollars' 
-                      ? 'bg-secondary text-foreground shadow-sm' 
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <DollarSign className="w-4 h-4" />
-                  Dollars
-                </button>
+                {/* Input Mode Toggle */}
+                <div className="flex flex-1 rounded-lg bg-muted p-0.5">
+                  <button
+                    onClick={() => {
+                      setInputMode('shares');
+                      setDollarAmount('');
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+                      inputMode === 'shares' 
+                        ? 'bg-secondary text-foreground shadow-sm' 
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Hash className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Shares</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setInputMode('dollars');
+                      setShares('');
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+                      inputMode === 'dollars' 
+                        ? 'bg-secondary text-foreground shadow-sm' 
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <DollarSign className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Dollars</span>
+                  </button>
+                </div>
               </div>
 
               {/* Input Field */}
