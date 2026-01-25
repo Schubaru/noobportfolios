@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe } from 'lucide-react';
+import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { Portfolio, QuoteData, Holding, AssetClass } from '@/lib/types';
+import { Portfolio, QuoteData, Holding, AssetClass, DividendInfo } from '@/lib/types';
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { updatePortfolio } from '@/lib/storage';
 import { 
@@ -19,6 +19,7 @@ import {
   FinnhubProfile,
   FinnhubSearchResult
 } from '@/lib/finnhub';
+import { fetchDividendInfo, formatDividendFrequency } from '@/lib/dividends';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface TradeModalProps {
@@ -99,6 +100,48 @@ const SUGGESTED_ASSETS = [
   { symbol: 'GOOGL', name: 'Alphabet Inc.', type: 'Stock', category: 'Tech Blue-Chip' },
 ];
 
+// Curated descriptions for popular assets (for educational context)
+const ASSET_DESCRIPTIONS: Record<string, string> = {
+  // Index ETFs
+  'VOO': 'Tracks the S&P 500 index, giving you exposure to 500 of the largest U.S. companies in a single investment. Low-cost and highly diversified.',
+  'VTI': 'Covers the entire U.S. stock market including small, mid, and large-cap companies. One of the most diversified U.S. stock ETFs available.',
+  'QQQ': 'Tracks the Nasdaq-100 index, focused on 100 of the largest non-financial companies on Nasdaq. Heavy in technology and growth stocks.',
+  'SPY': 'The original S&P 500 ETF and one of the most traded securities in the world. Provides exposure to America\'s largest companies.',
+  'IVV': 'Low-cost ETF tracking the S&P 500 from BlackRock. Similar to VOO and SPY with slightly different expense ratios.',
+  
+  // Dividend ETFs
+  'VYM': 'Focuses on high dividend-paying U.S. stocks. Good for income-focused investors seeking regular dividend payments.',
+  'SCHD': 'Tracks quality dividend stocks with consistent payment history. Known for solid dividend growth over time.',
+  'JEPI': 'Generates monthly income through a combination of dividends and options premiums. Popular for income-focused portfolios.',
+  'JEPQ': 'Similar to JEPI but focused on Nasdaq stocks. Offers monthly income with tech exposure.',
+  'HDV': 'Invests in high-dividend U.S. stocks with quality screens. Focuses on established, financially healthy companies.',
+  
+  // REITs
+  'O': 'Known as "The Monthly Dividend Company," this REIT pays dividends monthly. Invests in commercial real estate under long-term leases.',
+  'VNQ': 'Provides broad exposure to U.S. real estate through REITs. Includes residential, commercial, and specialized properties.',
+  
+  // Bond ETFs
+  'BND': 'Broad exposure to U.S. investment-grade bonds. Lower volatility than stocks, providing portfolio stability.',
+  'AGG': 'Tracks the total U.S. bond market. A core holding for conservative investors seeking income and stability.',
+  'TLT': 'Focuses on long-term U.S. Treasury bonds. Highly sensitive to interest rate changes.',
+  
+  // Blue-chip stocks
+  'AAPL': 'World\'s largest company by market cap. Known for iPhone, Mac, and a growing services business.',
+  'MSFT': 'Technology giant leading in cloud computing (Azure), productivity software, and AI investments.',
+  'GOOGL': 'Parent company of Google, YouTube, and Android. Leader in search, advertising, and cloud services.',
+  'AMZN': 'E-commerce and cloud computing leader. AWS is a major profit driver alongside retail operations.',
+  'NVDA': 'Leader in graphics processing units (GPUs) and AI chips. Key beneficiary of AI infrastructure buildout.',
+  'META': 'Parent of Facebook, Instagram, and WhatsApp. Major player in social media and VR technology.',
+  'JNJ': 'Diversified healthcare giant with pharmaceuticals, medical devices, and consumer health products.',
+  'JPM': 'Largest U.S. bank by assets. Diversified across investment banking, retail banking, and asset management.',
+  'V': 'Global payments technology company. Profits from transaction fees rather than lending.',
+  'WMT': 'World\'s largest retailer with extensive physical stores and growing e-commerce presence.',
+  'PG': 'Consumer goods giant owning brands like Tide, Pampers, and Gillette. Known for consistent dividends.',
+  'KO': 'Iconic beverage company with global brand recognition. Long history of dividend payments.',
+  'DIS': 'Entertainment conglomerate including Disney+, theme parks, and Marvel/Star Wars franchises.',
+  'TSLA': 'Electric vehicle pioneer also involved in energy storage and solar. Known for high volatility.',
+};
+
 const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol }: TradeModalProps) => {
   const [step, setStep] = useState<TradeStep>('search');
   const [tradeType, setTradeType] = useState<TradeType>('buy');
@@ -111,9 +154,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
   const [quote, setQuote] = useState<FinnhubQuote | null>(null);
   const [fundamentals, setFundamentals] = useState<FinnhubFundamentals | null>(null);
   const [profile, setProfile] = useState<FinnhubProfile | null>(null);
+  const [dividendInfo, setDividendInfo] = useState<DividendInfo | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(false);
   const [loadingFundamentals, setLoadingFundamentals] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [loadingDividends, setLoadingDividends] = useState(false);
   
   // Legacy quote for trade calculations (fallback)
   const [selectedQuote, setSelectedQuote] = useState<QuoteData | null>(null);
@@ -161,6 +206,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setQuote(null);
     setFundamentals(null);
     setProfile(null);
+    setDividendInfo(null);
     setSelectedQuote(null);
     setShares('');
     setDollarAmount('');
@@ -169,6 +215,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setLoadingQuote(false);
     setLoadingFundamentals(false);
     setLoadingProfile(false);
+    setLoadingDividends(false);
     lastFetchedSymbol.current = null;
     
     if (quoteRefreshRef.current) {
@@ -185,11 +232,13 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setLoadingQuote(true);
     setLoadingFundamentals(true);
     setLoadingProfile(true);
+    setLoadingDividends(true);
     
-    const [quoteResult, fundamentalsResult, profileResult] = await Promise.all([
+    const [quoteResult, fundamentalsResult, profileResult, dividendResult] = await Promise.all([
       fetchQuote(symbol),
       fetchFundamentals(symbol),
       fetchProfile(symbol),
+      fetchDividendInfo(symbol),
     ]);
     
     if (quoteResult.data) {
@@ -208,6 +257,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
       setProfile(profileResult.data);
     }
     setLoadingProfile(false);
+    
+    if (dividendResult) {
+      setDividendInfo(dividendResult);
+    }
+    setLoadingDividends(false);
   }, []);
 
   // Refresh quote only (every 10 seconds while modal is open)
@@ -583,10 +637,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                             <p className="font-semibold text-primary">{asset.symbol}</p>
                             <p className="text-sm text-muted-foreground truncate max-w-[200px]">{asset.name}</p>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-1 rounded-md bg-success/10 text-success text-xs">Dividend</span>
-                            <span className="px-2 py-1 rounded-md bg-muted text-xs">{asset.type}</span>
-                          </div>
+                          <span className="px-2 py-1 rounded-md bg-muted text-xs">{asset.type}</span>
                         </button>
                       ))}
                     </div>
@@ -683,6 +734,20 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                   </p>
                 )}
               </div>
+
+              {/* About This Asset */}
+              <AssetAboutSection 
+                symbol={displaySymbol}
+                profile={profile}
+                loading={loadingProfile}
+              />
+
+              {/* Dividend Information */}
+              <DividendInfoSection 
+                dividendInfo={dividendInfo}
+                currentPrice={displayPrice}
+                loading={loadingDividends}
+              />
 
               {/* Key Fundamentals Grid */}
               <div className="p-4 rounded-xl bg-muted/50 border border-border">
@@ -933,6 +998,149 @@ function FundamentalItem({ label, value, loading }: { label: string; value: stri
       ) : (
         <p className="text-sm font-medium">{value ?? 'N/A'}</p>
       )}
+    </div>
+  );
+}
+
+// About section for asset descriptions
+function AssetAboutSection({ 
+  symbol, 
+  profile, 
+  loading 
+}: { 
+  symbol: string; 
+  profile: FinnhubProfile | null; 
+  loading: boolean;
+}) {
+  const curatedDescription = ASSET_DESCRIPTIONS[symbol.toUpperCase()];
+  
+  // Build a fallback description from profile data
+  const fallbackDescription = profile?.industry 
+    ? `A ${profile.industry.toLowerCase()} company${profile.country ? ` based in ${profile.country}` : ''}.`
+    : null;
+
+  const description = curatedDescription || fallbackDescription;
+
+  if (loading) {
+    return (
+      <div className="p-4 rounded-xl bg-muted/50 border border-border">
+        <div className="flex items-center gap-2 mb-2">
+          <Info className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-muted-foreground">About This Asset</h3>
+        </div>
+        <Skeleton className="h-4 w-full mb-1" />
+        <Skeleton className="h-4 w-3/4" />
+      </div>
+    );
+  }
+
+  if (!description) return null;
+
+  return (
+    <div className="p-4 rounded-xl bg-muted/50 border border-border">
+      <div className="flex items-center gap-2 mb-2">
+        <Info className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-semibold text-muted-foreground">About This Asset</h3>
+      </div>
+      <p className="text-sm text-foreground leading-relaxed">{description}</p>
+      {profile?.exchange && (
+        <p className="text-xs text-muted-foreground mt-2">
+          Listed on {profile.exchange}{profile.country ? ` • ${profile.country}` : ''}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Dividend information section
+function DividendInfoSection({ 
+  dividendInfo, 
+  currentPrice,
+  loading 
+}: { 
+  dividendInfo: DividendInfo | null; 
+  currentPrice: number;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="p-4 rounded-xl bg-success/5 border border-success/20">
+        <div className="flex items-center gap-2 mb-2">
+          <Banknote className="w-4 h-4 text-success" />
+          <h3 className="text-sm font-semibold text-success">Dividend Information</h3>
+        </div>
+        <Skeleton className="h-4 w-32 mb-2" />
+        <Skeleton className="h-4 w-48" />
+      </div>
+    );
+  }
+
+  // No dividend info or no dividends paid
+  const paysDividends = dividendInfo && dividendInfo.dividends && dividendInfo.dividends.length > 0;
+  
+  if (!paysDividends) {
+    return (
+      <div className="p-4 rounded-xl bg-muted/30 border border-border">
+        <div className="flex items-center gap-2 mb-2">
+          <Banknote className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold text-muted-foreground">Dividend Information</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">This asset does not currently pay dividends.</p>
+        <p className="text-xs text-muted-foreground/70 mt-2 flex items-start gap-1">
+          <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+          <span>Some companies reinvest profits into growth instead of paying dividends to shareholders.</span>
+        </p>
+      </div>
+    );
+  }
+
+  // Calculate yield if we have price
+  const calculatedYield = dividendInfo.annualDividend && currentPrice > 0 
+    ? (dividendInfo.annualDividend / currentPrice) * 100 
+    : dividendInfo.dividendYield;
+
+  const frequencyLabel = formatDividendFrequency(dividendInfo.frequency);
+  
+  // Friendly frequency explanation
+  const frequencyExplanation: Record<string, string> = {
+    'Monthly': 'You would receive dividend payments every month.',
+    'Quarterly': 'You would receive dividend payments 4 times per year.',
+    'Semi-Annual': 'You would receive dividend payments twice per year.',
+    'Annual': 'You would receive one dividend payment per year.',
+  };
+
+  return (
+    <div className="p-4 rounded-xl bg-success/5 border border-success/20">
+      <div className="flex items-center gap-2 mb-3">
+        <Banknote className="w-4 h-4 text-success" />
+        <h3 className="text-sm font-semibold text-success">Dividend Information</h3>
+      </div>
+      
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Payment Frequency</span>
+          <span className="text-sm font-medium text-foreground">{frequencyLabel}</span>
+        </div>
+        
+        {dividendInfo.annualDividend && (
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Annual Dividend</span>
+            <span className="text-sm font-medium text-foreground">${dividendInfo.annualDividend.toFixed(2)}/share</span>
+          </div>
+        )}
+        
+        {calculatedYield && (
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Current Yield</span>
+            <span className="text-sm font-medium text-success">{calculatedYield.toFixed(2)}%</span>
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-success/10 flex items-start gap-1">
+        <Info className="w-3 h-3 mt-0.5 flex-shrink-0 text-success/70" />
+        <span>{frequencyExplanation[frequencyLabel] || 'This asset pays dividends to shareholders.'} Dividends are cash payments that companies distribute from their profits.</span>
+      </p>
     </div>
   );
 }
