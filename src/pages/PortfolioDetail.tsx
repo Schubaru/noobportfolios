@@ -11,16 +11,17 @@ import DiversityScore from '@/components/DiversityScore';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
-import { getPortfolio, deletePortfolio, updatePortfolio } from '@/lib/storage';
+import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
-import { Portfolio, PortfolioMetrics, Transaction, Holding, DividendInfo } from '@/lib/types';
+import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
-import { fetchDividendInfo, checkDividendPayments } from '@/lib/dividends';
 
 const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { getPortfolio, deletePortfolio, fetchPortfolios, isLoading: portfoliosLoading } = usePortfolios();
+  
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [metrics, setMetrics] = useState<PortfolioMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -34,18 +35,25 @@ const PortfolioDetail = () => {
   const loadPortfolioData = useCallback(async () => {
     if (!id) return;
     
+    // Get portfolio from the hook's state
     const data = getPortfolio(id);
     if (!data) {
-      navigate('/');
+      // Portfolio not found - might still be loading
+      if (!portfoliosLoading) {
+        navigate('/');
+      }
       return;
     }
+
+    // Create a copy for local state with updated prices
+    let portfolioWithPrices = { ...data, holdings: [...data.holdings] };
 
     // Update prices for holdings using real Finnhub API
     if (data.holdings.length > 0) {
       const symbols = data.holdings.map(h => h.symbol);
       const quotes = await fetchMultipleQuotes(symbols);
       
-      data.holdings = data.holdings.map(h => {
+      portfolioWithPrices.holdings = data.holdings.map(h => {
         const quote = quotes.get(h.symbol.toUpperCase());
         if (quote) {
           return {
@@ -56,19 +64,19 @@ const PortfolioDetail = () => {
         }
         return h;
       });
-
-      // Save updated prices
-      updatePortfolio(data);
     }
 
-    setPortfolio(data);
-    setMetrics(calculatePortfolioMetrics(data));
+    setPortfolio(portfolioWithPrices);
+    setMetrics(calculatePortfolioMetrics(portfolioWithPrices));
     setIsLoading(false);
-  }, [id, navigate]);
+  }, [id, getPortfolio, portfoliosLoading, navigate]);
 
+  // Load when portfolios are ready
   useEffect(() => {
-    loadPortfolioData();
-  }, [loadPortfolioData]);
+    if (!portfoliosLoading && id) {
+      loadPortfolioData();
+    }
+  }, [portfoliosLoading, id, loadPortfolioData]);
 
   // Refresh prices periodically
   useEffect(() => {
@@ -83,14 +91,17 @@ const PortfolioDetail = () => {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await loadPortfolioData();
+    await fetchPortfolios(); // Refresh from database
+    await loadPortfolioData(); // Then load with fresh quotes
     setIsRefreshing(false);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!id) return;
-    deletePortfolio(id);
-    navigate('/');
+    const success = await deletePortfolio(id);
+    if (success) {
+      navigate('/');
+    }
   };
 
   const handleViewAsset = (symbol: string) => {
@@ -105,11 +116,14 @@ const PortfolioDetail = () => {
     setIsTradeModalOpen(true);
   };
 
-  const handleTradeComplete = () => {
-    loadPortfolioData();
+  const handleTradeComplete = async () => {
+    // Refresh portfolios from database after trade
+    await fetchPortfolios();
+    // Then reload this portfolio with fresh prices
+    await loadPortfolioData();
   };
 
-  if (isLoading) {
+  if (isLoading || portfoliosLoading) {
     return (
       <div className="min-h-screen bg-background">
         <Header showCreate={false} />

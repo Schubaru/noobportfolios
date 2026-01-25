@@ -6,10 +6,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '@/integrations/supabase/client';
 import { Portfolio, QuoteData, Holding, AssetClass } from '@/lib/types';
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
-import { updatePortfolio } from '@/lib/storage';
 import { 
   fetchQuote, 
   fetchFundamentals, 
@@ -555,93 +554,143 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
       }
     }
 
-    // Create updated portfolio
-    const updatedPortfolio = { ...portfolio };
-    
-    // Update cash
-    if (tradeType === 'buy') {
-      updatedPortfolio.cash -= total;
-    } else {
-      updatedPortfolio.cash += total;
-    }
+    try {
+      // Calculate new cash balance
+      const newCash = tradeType === 'buy' 
+        ? portfolio.cash - total 
+        : portfolio.cash + total;
 
-    // Update holdings
-    const holdingIndex = updatedPortfolio.holdings.findIndex(
-      h => h.symbol === symbolToUse
-    );
+      // 1. Update portfolio cash
+      const { error: cashError } = await supabase
+        .from('portfolios')
+        .update({ cash: newCash })
+        .eq('id', portfolio.id);
 
-    if (tradeType === 'buy') {
-      if (holdingIndex >= 0) {
-        // Update existing holding with new average cost
-        const holding = updatedPortfolio.holdings[holdingIndex];
-        const totalShares = holding.shares + shareCount;
-        const totalCostCalc = (holding.avgCost * holding.shares) + (price * shareCount);
-        updatedPortfolio.holdings[holdingIndex] = {
-          ...holding,
-          shares: totalShares,
-          avgCost: totalCostCalc / totalShares,
-          currentPrice: price,
-        };
-      } else {
-        // Add new holding - prioritize search result's assetClass from API
-        const searchResult = searchResults.find(r => r.symbol === symbolToUse);
-        const assetClass = searchResult?.assetClass as AssetClass 
-          || detectAssetClass(searchResult?.type || 'stock', symbolToUse);
-        const newHolding: Holding = {
-          symbol: symbolToUse,
-          name: nameToUse,
-          shares: shareCount,
-          avgCost: price,
-          assetClass,
-          currentPrice: price,
-        };
-        updatedPortfolio.holdings.push(newHolding);
-      }
-    } else {
-      // Sell - reduce or remove holding
-      if (holdingIndex >= 0) {
-        const holding = updatedPortfolio.holdings[holdingIndex];
-        const remainingShares = holding.shares - shareCount;
-        
-        if (remainingShares <= 0) {
-          updatedPortfolio.holdings.splice(holdingIndex, 1);
+      if (cashError) throw cashError;
+
+      // 2. Update holdings
+      // First, fetch current holding from database
+      const { data: existingDbHolding } = await supabase
+        .from('holdings')
+        .select('*')
+        .eq('portfolio_id', portfolio.id)
+        .eq('symbol', symbolToUse)
+        .maybeSingle();
+
+      if (tradeType === 'buy') {
+        if (existingDbHolding) {
+          // Update existing holding with new average cost
+          const totalShares = Number(existingDbHolding.shares) + shareCount;
+          const totalCost = (Number(existingDbHolding.avg_cost) * Number(existingDbHolding.shares)) + (price * shareCount);
+          const newAvgCost = totalCost / totalShares;
+
+          const { error: updateError } = await supabase
+            .from('holdings')
+            .update({ 
+              shares: totalShares, 
+              avg_cost: newAvgCost 
+            })
+            .eq('id', existingDbHolding.id);
+
+          if (updateError) throw updateError;
         } else {
-          updatedPortfolio.holdings[holdingIndex] = {
-            ...holding,
-            shares: remainingShares,
-          };
+          // Create new holding
+          const searchResult = searchResults.find(r => r.symbol === symbolToUse);
+          const assetClass = searchResult?.assetClass as AssetClass 
+            || detectAssetClass(searchResult?.type || 'stock', symbolToUse);
+
+          const { error: insertError } = await supabase
+            .from('holdings')
+            .insert({
+              portfolio_id: portfolio.id,
+              symbol: symbolToUse,
+              name: nameToUse,
+              shares: shareCount,
+              avg_cost: price,
+              asset_class: assetClass,
+            });
+
+          if (insertError) throw insertError;
+        }
+      } else {
+        // Sell - reduce or remove holding
+        if (existingDbHolding) {
+          const remainingShares = Number(existingDbHolding.shares) - shareCount;
+          
+          if (remainingShares <= 0.0001) {
+            // Remove holding completely
+            const { error: deleteError } = await supabase
+              .from('holdings')
+              .delete()
+              .eq('id', existingDbHolding.id);
+
+            if (deleteError) throw deleteError;
+          } else {
+            // Update with remaining shares
+            const { error: updateError } = await supabase
+              .from('holdings')
+              .update({ shares: remainingShares })
+              .eq('id', existingDbHolding.id);
+
+            if (updateError) throw updateError;
+          }
         }
       }
+
+      // 3. Add transaction record
+      const { error: txError } = await supabase
+        .from('transactions')
+        .insert({
+          portfolio_id: portfolio.id,
+          symbol: symbolToUse,
+          name: nameToUse,
+          type: tradeType,
+          shares: shareCount,
+          price: price,
+          total: total,
+        });
+
+      if (txError) throw txError;
+
+      // 4. Add value history entry
+      // Calculate new portfolio value
+      const holdingsValue = portfolio.holdings.reduce((sum, h) => {
+        if (h.symbol === symbolToUse) {
+          // Use updated shares for this holding
+          if (tradeType === 'buy') {
+            return sum + (h.currentPrice || h.avgCost) * (h.shares + shareCount);
+          } else {
+            const remaining = h.shares - shareCount;
+            return remaining > 0 ? sum + (h.currentPrice || h.avgCost) * remaining : sum;
+          }
+        }
+        return sum + (h.currentPrice || h.avgCost) * h.shares;
+      }, 0);
+
+      // If buying a new asset, add its value
+      const isNewAsset = !portfolio.holdings.find(h => h.symbol === symbolToUse);
+      const newAssetValue = isNewAsset && tradeType === 'buy' ? price * shareCount : 0;
+
+      const newPortfolioValue = newCash + holdingsValue + newAssetValue;
+
+      const { error: valueError } = await supabase
+        .from('value_history')
+        .insert({
+          portfolio_id: portfolio.id,
+          value: newPortfolioValue,
+        });
+
+      if (valueError) throw valueError;
+
+      // Success!
+      setIsLoading(false);
+      onTradeComplete();
+      onClose();
+    } catch (error) {
+      console.error('Trade error:', error);
+      setError('Failed to execute trade. Please try again.');
+      setIsLoading(false);
     }
-
-    // Add transaction
-    updatedPortfolio.transactions.unshift({
-      id: uuidv4(),
-      symbol: symbolToUse,
-      name: nameToUse,
-      type: tradeType,
-      shares: shareCount,
-      price,
-      total,
-      timestamp: Date.now(),
-    });
-
-    // Update value history
-    const holdingsValue = updatedPortfolio.holdings.reduce(
-      (sum, h) => sum + (h.currentPrice || h.avgCost) * h.shares,
-      0
-    );
-    updatedPortfolio.valueHistory.push({
-      timestamp: Date.now(),
-      value: updatedPortfolio.cash + holdingsValue,
-    });
-
-    // Save and notify
-    await new Promise(resolve => setTimeout(resolve, 500));
-    updatePortfolio(updatedPortfolio);
-    setIsLoading(false);
-    onTradeComplete();
-    onClose();
   };
 
   const handleSetMaxShares = () => {
