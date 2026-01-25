@@ -127,6 +127,97 @@ const KNOWN_REIT_DIVIDENDS: Record<string, {
   'PSA': { yield: 4.00, frequency: 'quarterly', annualAmount: 12.00 },
 };
 
+// Curated dividend data for popular individual stocks
+// Data sourced from public financial records - yields are approximate and subject to change
+const KNOWN_STOCK_DIVIDENDS: Record<string, { 
+  yield: number;
+  frequency: string;
+  annualAmount: number;
+}> = {
+  // Dividend Aristocrats (25+ years of dividend increases)
+  'JNJ': { yield: 3.10, frequency: 'quarterly', annualAmount: 5.00 },
+  'KO': { yield: 2.90, frequency: 'quarterly', annualAmount: 2.00 },
+  'PG': { yield: 2.40, frequency: 'quarterly', annualAmount: 4.00 },
+  'PEP': { yield: 2.70, frequency: 'quarterly', annualAmount: 5.42 },
+  'MCD': { yield: 2.20, frequency: 'quarterly', annualAmount: 6.68 },
+  'MMM': { yield: 5.80, frequency: 'quarterly', annualAmount: 6.00 },
+  'ABT': { yield: 1.80, frequency: 'quarterly', annualAmount: 2.20 },
+  'T': { yield: 5.10, frequency: 'quarterly', annualAmount: 1.11 },
+  'VZ': { yield: 6.40, frequency: 'quarterly', annualAmount: 2.71 },
+  'XOM': { yield: 3.30, frequency: 'quarterly', annualAmount: 3.96 },
+  'CVX': { yield: 4.20, frequency: 'quarterly', annualAmount: 6.52 },
+  'IBM': { yield: 2.60, frequency: 'quarterly', annualAmount: 6.68 },
+  'HD': { yield: 2.30, frequency: 'quarterly', annualAmount: 9.00 },
+  'LOW': { yield: 1.90, frequency: 'quarterly', annualAmount: 4.60 },
+  'WMT': { yield: 1.30, frequency: 'quarterly', annualAmount: 1.32 },
+  'COST': { yield: 0.50, frequency: 'quarterly', annualAmount: 4.64 },
+  'CL': { yield: 2.30, frequency: 'quarterly', annualAmount: 2.00 },
+  'KMB': { yield: 3.50, frequency: 'quarterly', annualAmount: 4.88 },
+  
+  // Big Tech Dividend Payers
+  'AAPL': { yield: 0.45, frequency: 'quarterly', annualAmount: 1.00 },
+  'MSFT': { yield: 0.70, frequency: 'quarterly', annualAmount: 3.00 },
+  'CSCO': { yield: 2.80, frequency: 'quarterly', annualAmount: 1.60 },
+  'INTC': { yield: 1.40, frequency: 'quarterly', annualAmount: 0.50 },
+  'AVGO': { yield: 1.30, frequency: 'quarterly', annualAmount: 21.00 },
+  'TXN': { yield: 2.70, frequency: 'quarterly', annualAmount: 5.20 },
+  'QCOM': { yield: 2.00, frequency: 'quarterly', annualAmount: 3.40 },
+  
+  // Financials
+  'JPM': { yield: 2.10, frequency: 'quarterly', annualAmount: 5.00 },
+  'BAC': { yield: 2.40, frequency: 'quarterly', annualAmount: 1.04 },
+  'WFC': { yield: 2.30, frequency: 'quarterly', annualAmount: 1.60 },
+  'GS': { yield: 2.00, frequency: 'quarterly', annualAmount: 12.00 },
+  'BLK': { yield: 2.10, frequency: 'quarterly', annualAmount: 20.40 },
+  'MS': { yield: 3.20, frequency: 'quarterly', annualAmount: 3.40 },
+  'C': { yield: 3.00, frequency: 'quarterly', annualAmount: 2.12 },
+  'USB': { yield: 4.20, frequency: 'quarterly', annualAmount: 2.00 },
+  'PNC': { yield: 3.40, frequency: 'quarterly', annualAmount: 6.20 },
+  
+  // Healthcare
+  'ABBV': { yield: 3.40, frequency: 'quarterly', annualAmount: 6.56 },
+  'MRK': { yield: 3.00, frequency: 'quarterly', annualAmount: 3.08 },
+  'PFE': { yield: 5.80, frequency: 'quarterly', annualAmount: 1.68 },
+  'LLY': { yield: 0.70, frequency: 'quarterly', annualAmount: 5.60 },
+  'UNH': { yield: 1.40, frequency: 'quarterly', annualAmount: 8.40 },
+  'BMY': { yield: 4.50, frequency: 'quarterly', annualAmount: 2.40 },
+  'AMGN': { yield: 3.00, frequency: 'quarterly', annualAmount: 9.00 },
+  'GILD': { yield: 3.50, frequency: 'quarterly', annualAmount: 3.08 },
+  
+  // Utilities (high-yield, reliable)
+  'NEE': { yield: 2.60, frequency: 'quarterly', annualAmount: 2.06 },
+  'DUK': { yield: 3.80, frequency: 'quarterly', annualAmount: 4.18 },
+  'SO': { yield: 3.30, frequency: 'quarterly', annualAmount: 2.88 },
+  'D': { yield: 4.80, frequency: 'quarterly', annualAmount: 2.67 },
+  'AEP': { yield: 3.40, frequency: 'quarterly', annualAmount: 3.60 },
+  'XEL': { yield: 3.30, frequency: 'quarterly', annualAmount: 2.20 },
+  
+  // Consumer
+  'NKE': { yield: 1.40, frequency: 'quarterly', annualAmount: 1.54 },
+  'SBUX': { yield: 2.40, frequency: 'quarterly', annualAmount: 2.28 },
+  'MO': { yield: 8.00, frequency: 'quarterly', annualAmount: 4.00 },
+  'PM': { yield: 4.40, frequency: 'quarterly', annualAmount: 5.40 },
+  'DIS': { yield: 0.90, frequency: 'semi-annually', annualAmount: 1.00 },
+  'MDLZ': { yield: 2.20, frequency: 'quarterly', annualAmount: 1.68 },
+  'STZ': { yield: 1.50, frequency: 'quarterly', annualAmount: 4.04 },
+  
+  // Industrials
+  'CAT': { yield: 1.50, frequency: 'quarterly', annualAmount: 5.52 },
+  'DE': { yield: 1.30, frequency: 'quarterly', annualAmount: 5.88 },
+  'HON': { yield: 2.00, frequency: 'quarterly', annualAmount: 4.40 },
+  'UPS': { yield: 4.40, frequency: 'quarterly', annualAmount: 6.52 },
+  'RTX': { yield: 2.10, frequency: 'quarterly', annualAmount: 2.48 },
+  'LMT': { yield: 2.60, frequency: 'quarterly', annualAmount: 12.60 },
+  'GE': { yield: 0.60, frequency: 'quarterly', annualAmount: 1.00 },
+  'BA': { yield: 0.00, frequency: 'none', annualAmount: 0 }, // Suspended
+  
+  // Energy
+  'COP': { yield: 2.80, frequency: 'quarterly', annualAmount: 3.16 },
+  'EOG': { yield: 2.70, frequency: 'quarterly', annualAmount: 3.60 },
+  'SLB': { yield: 2.40, frequency: 'quarterly', annualAmount: 1.10 },
+  'OXY': { yield: 1.80, frequency: 'quarterly', annualAmount: 0.88 },
+};
+
 // Detect asset class from type string and symbol
 function detectAssetClass(type: string, symbol?: string): AssetClass {
   const upperSymbol = symbol?.toUpperCase() || '';
@@ -803,10 +894,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 loading={loadingProfile}
               />
 
-              {/* Dividend Information - uses curated data for ETFs, fundamentals for stocks */}
+              {/* Dividend Information - uses curated data for ETFs/REITs/stocks, fundamentals for others */}
               <DividendInfoSection 
                 symbol={displaySymbol}
                 dividendYield={fundamentals?.dividendYieldTTM ?? null}
+                dividendsPerShare={fundamentals?.dividendsPerShareTTM ?? null}
                 currentPrice={displayPrice}
                 loading={loadingFundamentals}
               />
@@ -1114,24 +1206,27 @@ function AssetAboutSection({
   );
 }
 
-// Dividend information section - uses curated data for ETFs since Finnhub free tier doesn't return ETF dividend data
+// Dividend information section - uses curated data first, then API data, with smart defaults
 function DividendInfoSection({ 
   symbol,
-  dividendYield, 
+  dividendYield,
+  dividendsPerShare,
   currentPrice,
   loading 
 }: { 
   symbol: string;
-  dividendYield: number | null; 
+  dividendYield: number | null;
+  dividendsPerShare: number | null;
   currentPrice: number;
   loading: boolean;
 }) {
   const upperSymbol = symbol.toUpperCase();
   
-  // Check curated data first (ETFs and REITs)
+  // Check all curated data sources (ETFs, REITs, and individual stocks)
   const curatedEtfData = KNOWN_ETF_DIVIDENDS[upperSymbol];
   const curatedReitData = KNOWN_REIT_DIVIDENDS[upperSymbol];
-  const curatedData = curatedEtfData || curatedReitData;
+  const curatedStockData = KNOWN_STOCK_DIVIDENDS[upperSymbol];
+  const curatedData = curatedEtfData || curatedReitData || curatedStockData;
   
   if (loading) {
     return (
@@ -1150,7 +1245,10 @@ function DividendInfoSection({
   const effectiveYield = curatedData?.yield ?? dividendYield;
   const paysDividends = effectiveYield !== null && effectiveYield > 0;
   
-  if (!paysDividends) {
+  // Check if it's a known non-dividend payer
+  const isKnownNoDividend = curatedData?.frequency === 'none';
+  
+  if (!paysDividends || isKnownNoDividend) {
     return (
       <div className="p-4 rounded-xl bg-muted/30 border border-border">
         <div className="flex items-center gap-2 mb-2">
@@ -1166,20 +1264,31 @@ function DividendInfoSection({
     );
   }
 
-  // Calculate estimated annual dividend
+  // Calculate estimated annual dividend - use curated, then API dividendsPerShare, then calculate from yield
   const estimatedAnnualDividend = curatedData?.annualAmount 
+    ?? dividendsPerShare
     ?? (currentPrice > 0 && effectiveYield ? (effectiveYield / 100) * currentPrice : null);
   
-  // Frequency info
-  const frequency = curatedData?.frequency;
+  // Frequency info - use curated if available, otherwise default to quarterly (most common in US markets)
+  const isFromCurated = !!curatedData;
+  const frequency = curatedData?.frequency ?? 'quarterly';
+  const frequencyIsEstimated = !isFromCurated && paysDividends;
+  
   const frequencyLabel = frequency === 'monthly' ? 'Monthly' 
     : frequency === 'quarterly' ? 'Quarterly' 
-    : null;
+    : frequency === 'semi-annually' ? 'Semi-Annually'
+    : frequency === 'annually' ? 'Annually'
+    : 'Quarterly';
+    
   const frequencyExplanation = frequency === 'monthly' 
     ? '12 payments per year' 
     : frequency === 'quarterly' 
     ? '4 payments per year' 
-    : null;
+    : frequency === 'semi-annually'
+    ? '2 payments per year'
+    : frequency === 'annually'
+    ? '1 payment per year'
+    : '4 payments per year';
 
   return (
     <div className="p-4 rounded-xl bg-success/5 border border-success/20">
@@ -1189,26 +1298,23 @@ function DividendInfoSection({
       </div>
       
       <div className="space-y-2">
-        {frequencyLabel && (
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Payment Frequency</span>
-            <span className="text-sm font-medium text-foreground">
-              {frequencyLabel}
-              {frequencyExplanation && (
-                <span className="text-xs text-muted-foreground ml-1">({frequencyExplanation})</span>
-              )}
-            </span>
-          </div>
-        )}
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Payment Frequency</span>
+          <span className="text-sm font-medium text-foreground">
+            {frequencyLabel}
+            {frequencyIsEstimated && '*'}
+            <span className="text-xs text-muted-foreground ml-1">({frequencyExplanation})</span>
+          </span>
+        </div>
         
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Current Yield</span>
           <span className="text-sm font-medium text-success">
-            {curatedData ? '~' : ''}{effectiveYield!.toFixed(2)}%
+            {isFromCurated ? '~' : ''}{effectiveYield!.toFixed(2)}%
           </span>
         </div>
         
-        {estimatedAnnualDividend && (
+        {estimatedAnnualDividend && estimatedAnnualDividend > 0 && (
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Est. Annual Dividend</span>
             <span className="text-sm font-medium text-foreground">
@@ -1221,10 +1327,14 @@ function DividendInfoSection({
       <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-success/10 flex items-start gap-1">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0 text-success/70" />
         <span>
-          {frequency === 'monthly' 
+          {frequencyIsEstimated 
+            ? '*Most US stocks pay quarterly. This asset pays dividends to shareholders—check company investor relations for exact payment dates.'
+            : frequency === 'monthly' 
             ? 'This asset pays dividends monthly. You\'ll receive cash payments 12 times per year if you own shares.'
             : frequency === 'quarterly'
             ? 'This asset pays dividends quarterly. You\'ll receive cash payments 4 times per year if you own shares.'
+            : frequency === 'semi-annually'
+            ? 'This asset pays dividends twice a year. You\'ll receive cash payments 2 times per year if you own shares.'
             : 'This asset pays dividends to shareholders. Dividends are cash payments that companies distribute from their profits.'
           }
         </span>
