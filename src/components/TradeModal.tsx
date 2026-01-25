@@ -54,6 +54,79 @@ const KNOWN_REIT_SYMBOLS = new Set([
   'WELL', 'AVB', 'EQR', 'SCHH', 'IYR', 'RWR', 'XLRE', 'STAG', 'NNN', 'WPC',
 ]);
 
+// Curated dividend data for popular ETFs (Finnhub free tier doesn't return ETF dividend data)
+// Data sourced from public ETF providers - yields are approximate and subject to change
+const KNOWN_ETF_DIVIDENDS: Record<string, { 
+  yield: number;        // Current approximate yield %
+  frequency: string;    // 'quarterly', 'monthly', etc.
+  annualAmount: number; // Annual dividend per share (approximate)
+}> = {
+  // S&P 500 / Total Market ETFs
+  'VTI': { yield: 1.30, frequency: 'quarterly', annualAmount: 3.85 },
+  'VOO': { yield: 1.25, frequency: 'quarterly', annualAmount: 7.00 },
+  'SPY': { yield: 1.22, frequency: 'quarterly', annualAmount: 7.20 },
+  'IVV': { yield: 1.25, frequency: 'quarterly', annualAmount: 7.10 },
+  
+  // Nasdaq / Growth ETFs
+  'QQQ': { yield: 0.55, frequency: 'quarterly', annualAmount: 2.90 },
+  'VUG': { yield: 0.50, frequency: 'quarterly', annualAmount: 2.00 },
+  
+  // Dividend-focused ETFs
+  'VYM': { yield: 2.75, frequency: 'quarterly', annualAmount: 3.50 },
+  'SCHD': { yield: 3.40, frequency: 'quarterly', annualAmount: 0.95 },
+  'HDV': { yield: 3.30, frequency: 'quarterly', annualAmount: 3.80 },
+  'DVY': { yield: 3.50, frequency: 'quarterly', annualAmount: 4.50 },
+  'VIG': { yield: 1.75, frequency: 'quarterly', annualAmount: 3.40 },
+  'SPHD': { yield: 3.80, frequency: 'monthly', annualAmount: 1.80 },
+  
+  // High-income ETFs (covered call strategies)
+  'JEPI': { yield: 7.20, frequency: 'monthly', annualAmount: 4.10 },
+  'JEPQ': { yield: 9.50, frequency: 'monthly', annualAmount: 5.00 },
+  'QYLD': { yield: 11.50, frequency: 'monthly', annualAmount: 2.00 },
+  'XYLD': { yield: 9.80, frequency: 'monthly', annualAmount: 4.50 },
+  'DIVO': { yield: 4.50, frequency: 'monthly', annualAmount: 1.60 },
+  
+  // Bond ETFs
+  'BND': { yield: 3.60, frequency: 'monthly', annualAmount: 2.70 },
+  'AGG': { yield: 3.50, frequency: 'monthly', annualAmount: 3.50 },
+  'TLT': { yield: 3.80, frequency: 'monthly', annualAmount: 3.70 },
+  'LQD': { yield: 4.80, frequency: 'monthly', annualAmount: 5.40 },
+  'HYG': { yield: 5.50, frequency: 'monthly', annualAmount: 4.30 },
+  'VCIT': { yield: 4.40, frequency: 'monthly', annualAmount: 3.70 },
+  'VCSH': { yield: 3.80, frequency: 'monthly', annualAmount: 3.00 },
+  
+  // REIT ETFs
+  'VNQ': { yield: 3.90, frequency: 'quarterly', annualAmount: 3.60 },
+  'SCHH': { yield: 2.80, frequency: 'quarterly', annualAmount: 0.60 },
+  'IYR': { yield: 2.50, frequency: 'quarterly', annualAmount: 2.40 },
+  'XLRE': { yield: 3.20, frequency: 'quarterly', annualAmount: 1.50 },
+  
+  // International ETFs
+  'VXUS': { yield: 3.00, frequency: 'quarterly', annualAmount: 1.85 },
+  'VEA': { yield: 3.20, frequency: 'quarterly', annualAmount: 1.65 },
+  'VWO': { yield: 3.40, frequency: 'quarterly', annualAmount: 1.50 },
+  
+  // Sector ETFs
+  'XLU': { yield: 2.90, frequency: 'quarterly', annualAmount: 2.20 },
+  'XLE': { yield: 3.30, frequency: 'quarterly', annualAmount: 3.00 },
+  'XLF': { yield: 1.50, frequency: 'quarterly', annualAmount: 0.70 },
+  'VHT': { yield: 1.30, frequency: 'quarterly', annualAmount: 3.60 },
+};
+
+// Known dividend-paying REITs (monthly payers are popular with income investors)
+const KNOWN_REIT_DIVIDENDS: Record<string, { 
+  yield: number;
+  frequency: string;
+  annualAmount: number;
+}> = {
+  'O': { yield: 5.50, frequency: 'monthly', annualAmount: 3.10 },
+  'STAG': { yield: 4.20, frequency: 'monthly', annualAmount: 1.47 },
+  'NNN': { yield: 5.00, frequency: 'quarterly', annualAmount: 2.32 },
+  'WPC': { yield: 5.80, frequency: 'quarterly', annualAmount: 3.48 },
+  'SPG': { yield: 5.00, frequency: 'quarterly', annualAmount: 8.00 },
+  'PSA': { yield: 4.00, frequency: 'quarterly', annualAmount: 12.00 },
+};
+
 // Detect asset class from type string and symbol
 function detectAssetClass(type: string, symbol?: string): AssetClass {
   const upperSymbol = symbol?.toUpperCase() || '';
@@ -730,8 +803,9 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 loading={loadingProfile}
               />
 
-              {/* Dividend Information - uses fundamentals data */}
+              {/* Dividend Information - uses curated data for ETFs, fundamentals for stocks */}
               <DividendInfoSection 
+                symbol={displaySymbol}
                 dividendYield={fundamentals?.dividendYieldTTM ?? null}
                 currentPrice={displayPrice}
                 loading={loadingFundamentals}
@@ -1040,16 +1114,25 @@ function AssetAboutSection({
   );
 }
 
-// Dividend information section - uses fundamentals data since dividend API requires premium
+// Dividend information section - uses curated data for ETFs since Finnhub free tier doesn't return ETF dividend data
 function DividendInfoSection({ 
+  symbol,
   dividendYield, 
   currentPrice,
   loading 
 }: { 
+  symbol: string;
   dividendYield: number | null; 
   currentPrice: number;
   loading: boolean;
 }) {
+  const upperSymbol = symbol.toUpperCase();
+  
+  // Check curated data first (ETFs and REITs)
+  const curatedEtfData = KNOWN_ETF_DIVIDENDS[upperSymbol];
+  const curatedReitData = KNOWN_REIT_DIVIDENDS[upperSymbol];
+  const curatedData = curatedEtfData || curatedReitData;
+  
   if (loading) {
     return (
       <div className="p-4 rounded-xl bg-success/5 border border-success/20">
@@ -1063,8 +1146,9 @@ function DividendInfoSection({
     );
   }
 
-  // Check if this asset pays dividends based on yield from fundamentals
-  const paysDividends = dividendYield !== null && dividendYield > 0;
+  // Use curated data if available, otherwise fall back to fundamentals API data
+  const effectiveYield = curatedData?.yield ?? dividendYield;
+  const paysDividends = effectiveYield !== null && effectiveYield > 0;
   
   if (!paysDividends) {
     return (
@@ -1082,8 +1166,20 @@ function DividendInfoSection({
     );
   }
 
-  // Estimate annual dividend from yield and price
-  const estimatedAnnualDividend = currentPrice > 0 ? (dividendYield / 100) * currentPrice : null;
+  // Calculate estimated annual dividend
+  const estimatedAnnualDividend = curatedData?.annualAmount 
+    ?? (currentPrice > 0 && effectiveYield ? (effectiveYield / 100) * currentPrice : null);
+  
+  // Frequency info
+  const frequency = curatedData?.frequency;
+  const frequencyLabel = frequency === 'monthly' ? 'Monthly' 
+    : frequency === 'quarterly' ? 'Quarterly' 
+    : null;
+  const frequencyExplanation = frequency === 'monthly' 
+    ? '12 payments per year' 
+    : frequency === 'quarterly' 
+    ? '4 payments per year' 
+    : null;
 
   return (
     <div className="p-4 rounded-xl bg-success/5 border border-success/20">
@@ -1093,22 +1189,45 @@ function DividendInfoSection({
       </div>
       
       <div className="space-y-2">
+        {frequencyLabel && (
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Payment Frequency</span>
+            <span className="text-sm font-medium text-foreground">
+              {frequencyLabel}
+              {frequencyExplanation && (
+                <span className="text-xs text-muted-foreground ml-1">({frequencyExplanation})</span>
+              )}
+            </span>
+          </div>
+        )}
+        
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Current Yield</span>
-          <span className="text-sm font-medium text-success">{dividendYield.toFixed(2)}%</span>
+          <span className="text-sm font-medium text-success">
+            {curatedData ? '~' : ''}{effectiveYield!.toFixed(2)}%
+          </span>
         </div>
         
         {estimatedAnnualDividend && (
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Est. Annual Dividend</span>
-            <span className="text-sm font-medium text-foreground">~${estimatedAnnualDividend.toFixed(2)}/share</span>
+            <span className="text-sm font-medium text-foreground">
+              ~${estimatedAnnualDividend.toFixed(2)}/share
+            </span>
           </div>
         )}
       </div>
 
       <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-success/10 flex items-start gap-1">
         <Info className="w-3 h-3 mt-0.5 flex-shrink-0 text-success/70" />
-        <span>This asset pays dividends to shareholders. Dividends are cash payments that companies distribute from their profits, typically paid quarterly.</span>
+        <span>
+          {frequency === 'monthly' 
+            ? 'This asset pays dividends monthly. You\'ll receive cash payments 12 times per year if you own shares.'
+            : frequency === 'quarterly'
+            ? 'This asset pays dividends quarterly. You\'ll receive cash payments 4 times per year if you own shares.'
+            : 'This asset pays dividends to shareholders. Dividends are cash payments that companies distribute from their profits.'
+          }
+        </span>
       </p>
     </div>
   );
