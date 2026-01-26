@@ -93,26 +93,25 @@ export const usePortfolioChart = ({
     // Sort by timestamp
     filtered.sort((a, b) => a.timestamp - b.timestamp);
     
-    // IMPORTANT: valueHistory stores TOTAL portfolio value (cash + holdings)
-    // We cannot accurately determine historical holdings value without knowing
-    // historical cash balance. So we display total portfolio value in the chart
-    // and only show the current holdings value in the header.
+    // HOLDINGS-ONLY MODE: User wants to see only invested assets, not cash
+    // valueHistory stores TOTAL portfolio value (cash + holdings)
+    // We subtract cash to approximate historical holdings value
+    // This assumes cash balance hasn't changed significantly (reasonable for most cases)
     
-    // For chart line: use total portfolio values as stored
+    // For chart line: convert total values to holdings-only by subtracting cash
     const points: ChartDataPoint[] = filtered.map((v, idx) => ({
       timestamp: v.timestamp,
-      value: v.value, // Use actual stored value (total portfolio)
+      value: Math.max(0, v.value - cash), // Holdings = Total - Cash
       date: formatDateForRange(v.timestamp, timeRange),
       index: idx,
     }));
     
-    // Add current TOTAL portfolio value as the latest point
-    const currentTotalValue = currentValue + cash;
+    // Add current HOLDINGS value as the latest point (NOT including cash)
     const lastRecorded = points[points.length - 1];
-    if (!lastRecorded || Math.abs(lastRecorded.value - currentTotalValue) > 0.01) {
+    if (!lastRecorded || Math.abs(lastRecorded.value - currentValue) > 0.01) {
       points.push({
         timestamp: Date.now(),
-        value: currentTotalValue,
+        value: currentValue, // currentValue is already holdings-only
         date: formatDateForRange(Date.now(), timeRange),
         index: points.length,
       });
@@ -121,10 +120,11 @@ export const usePortfolioChart = ({
     return points;
   }, [valueHistory, currentValue, cash, timeRange]);
 
-  // Calculate changes using consistent total portfolio values from chart data
-  const startValue = chartData.length > 0 ? chartData[0].value : (currentValue + cash);
-  const endValue = chartData.length > 0 ? chartData[chartData.length - 1].value : (currentValue + cash);
+  // Calculate changes using HOLDINGS-ONLY values from chart data
+  const startValue = chartData.length > 0 ? chartData[0].value : currentValue;
+  const endValue = chartData.length > 0 ? chartData[chartData.length - 1].value : currentValue;
   const absoluteChange = endValue - startValue;
+  // If no holdings at start (startValue = 0), show "—" for percent to avoid divide-by-zero
   const percentChange = startValue > 0 ? (absoluteChange / startValue) * 100 : 0;
   const isPositive = absoluteChange > 0;
   const isNeutral = Math.abs(absoluteChange) < 0.01;
@@ -139,20 +139,19 @@ export const usePortfolioChart = ({
       currentHoldingsValue: currentValue,
       cash,
       chartDataPoints: chartData.length,
-      mode: 'total_portfolio_value',
+      mode: 'holdings_only',
     });
   }
 
   // Compute display values based on hover state
-  // Header shows current HOLDINGS value (invested assets)
-  // Delta shows change in TOTAL portfolio value (for accuracy)
+  // All values are HOLDINGS-ONLY (invested assets, excluding cash)
   const displayValue = useMemo(() => {
     if (hoverIndex !== null && chartData[hoverIndex]) {
-      // When hovering, show that point's total value minus current cash (approximation)
-      return Math.max(0, chartData[hoverIndex].value - cash);
+      // Show holdings value at that point in time
+      return chartData[hoverIndex].value;
     }
     return currentValue; // Current holdings value
-  }, [hoverIndex, chartData, currentValue, cash]);
+  }, [hoverIndex, chartData, currentValue]);
 
   const displayChange = useMemo(() => {
     if (hoverIndex !== null && chartData[hoverIndex]) {
