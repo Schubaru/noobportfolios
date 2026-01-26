@@ -78,7 +78,12 @@ const PortfolioDetail = () => {
       } catch (error) {
         console.error('Error fetching quotes, using last known prices:', error);
         hasApiErrors = true;
-        // portfolioWithPrices keeps the original holdings with their last known prices
+        // Fallback: use avg_cost as current price if no price data exists
+        portfolioWithPrices.holdings = data.holdings.map(h => ({
+          ...h,
+          currentPrice: h.currentPrice ?? h.avgCost,
+          previousClose: h.previousClose ?? h.avgCost,
+        }));
       }
     }
 
