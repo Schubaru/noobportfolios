@@ -19,6 +19,7 @@ export interface Transaction {
   price: number;
   total: number;
   timestamp: number;
+  realizedPL?: number; // Only populated for sell transactions
 }
 
 export interface ValueSnapshot {

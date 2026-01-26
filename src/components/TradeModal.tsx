@@ -638,6 +638,13 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
       }
 
       // 3. Add transaction record
+      // Calculate realized P/L for sell transactions
+      let realizedPL: number | null = null;
+      if (tradeType === 'sell' && existingDbHolding) {
+        const avgCostAtSale = Number(existingDbHolding.avg_cost);
+        realizedPL = (price - avgCostAtSale) * shareCount;
+      }
+
       const { error: txError } = await supabase
         .from('transactions')
         .insert({
@@ -648,6 +655,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
           shares: shareCount,
           price: price,
           total: total,
+          realized_pl: realizedPL,
         });
 
       if (txError) throw txError;

@@ -1,4 +1,4 @@
-import { Portfolio, PortfolioMetrics, Holding } from './types';
+import { Portfolio, PortfolioMetrics, Holding, Transaction } from './types';
 
 export const calculateHoldingsValue = (holdings: Holding[]): number => {
   return holdings.reduce((sum, h) => sum + (h.currentPrice || h.avgCost) * h.shares, 0);
@@ -17,6 +17,28 @@ export const calculateDailyPL = (holdings: Holding[]): number => {
   }, 0);
 };
 
+/**
+ * Calculate unrealized P/L from current holdings
+ * Formula: Σ((currentPrice - avgCost) × shares)
+ */
+export const calculateUnrealizedPL = (holdings: Holding[]): number => {
+  return holdings.reduce((sum, h) => {
+    const currentPrice = h.currentPrice ?? h.avgCost;
+    const unrealized = (currentPrice - h.avgCost) * h.shares;
+    return sum + unrealized;
+  }, 0);
+};
+
+/**
+ * Calculate realized P/L from sell transactions
+ * Formula: Σ(transaction.realizedPL) for all sell transactions
+ */
+export const calculateRealizedPL = (transactions: Transaction[]): number => {
+  return transactions
+    .filter(t => t.type === 'sell' && t.realizedPL !== undefined)
+    .reduce((sum, t) => sum + (t.realizedPL || 0), 0);
+};
+
 export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetrics => {
   const totalValue = calculatePortfolioValue(portfolio);
   const dailyPL = calculateDailyPL(portfolio.holdings);
@@ -24,17 +46,31 @@ export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetric
   const previousValue = totalValue - dailyPL;
   const dailyPLPercent = previousValue > 0 ? (dailyPL / previousValue) * 100 : 0;
   
-  const allTimePL = totalValue - portfolio.startingCash;
-  const allTimePLPercent = (allTimePL / portfolio.startingCash) * 100;
-  const cumulativeReturn = allTimePLPercent;
+  // FIXED: Calculate unrealized P/L correctly (not totalValue - startingCash)
+  const unrealizedPL = calculateUnrealizedPL(portfolio.holdings);
+  
+  // Calculate realized P/L from sell transactions
+  const realizedPL = calculateRealizedPL(portfolio.transactions);
   
   // Calculate dividend income
   const totalDividends = portfolio.totalDividendsEarned || 
     (portfolio.dividendHistory || []).reduce((sum, d) => sum + d.totalAmount, 0);
   
+  // Fees (from income table, default 0 until integrated)
+  const totalFees = 0;
+  
+  // CORRECT FORMULA: Total Return = Realized + Unrealized + Dividends - Fees
+  const allTimePL = realizedPL + unrealizedPL;
+  const allTimePLPercent = portfolio.startingCash > 0 
+    ? (allTimePL / portfolio.startingCash) * 100 
+    : 0;
+  const cumulativeReturn = allTimePLPercent;
+  
   // Total return including dividends
-  const totalReturnWithDividends = allTimePL + totalDividends;
-  const totalReturnWithDividendsPercent = (totalReturnWithDividends / portfolio.startingCash) * 100;
+  const totalReturnWithDividends = allTimePL + totalDividends - totalFees;
+  const totalReturnWithDividendsPercent = portfolio.startingCash > 0
+    ? (totalReturnWithDividends / portfolio.startingCash) * 100
+    : 0;
   
   return {
     totalValue,

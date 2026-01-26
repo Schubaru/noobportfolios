@@ -35,6 +35,7 @@ export interface DbTransaction {
   price: number;
   total: number;
   executed_at: string;
+  realized_pl: number | null;
 }
 
 export interface DbValueHistory {
@@ -93,6 +94,7 @@ export const usePortfolios = () => {
         price: Number(t.price),
         total: Number(t.total),
         timestamp: new Date(t.executed_at).getTime(),
+        realizedPL: t.realized_pl !== null ? Number(t.realized_pl) : undefined,
       })),
       valueHistory: valueHistory.map((v): ValueSnapshot => ({
         timestamp: new Date(v.recorded_at).getTime(),
