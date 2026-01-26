@@ -1,212 +1,253 @@
 
 
-# Interactive Portfolio Value Line Chart
+# Fix Total Return Logic Bug
 
-## Overview
+## Problem Analysis
 
-This plan creates an interactive time-series chart showing total portfolio value over time using the **existing `value_history` data** stored in the database. The chart will feature hover/scrub interaction with real-time value updates, time range filtering, and graceful handling of limited data.
+The portfolio is showing **+$903.12 Total Return** when the holdings P/L shows **~0%**. This inconsistency stems from a flawed calculation formula in `src/lib/portfolio.ts`.
 
-## Simplified Approach
+### Root Cause
 
-Instead of fetching historical candles from Finnhub and reconstructing portfolio values, we'll:
-- Use the `value_history` snapshots already stored in the database
-- Add the current portfolio value as the latest data point
-- Build an interactive UI on top of this existing data
+The current formula:
+```
+allTimePL = totalValue - startingCash
+         = (cash + holdingsValue) - startingCash
+```
 
-This approach is:
-- More reliable (no additional API calls that can fail)
-- Faster (data already exists locally)
-- Simpler to implement and maintain
+When `currentPrice` falls back to `avgCost`:
+- Holdings value = (3 × $301.04) + (4 × $637.09) = $3,451.48
+- Total value = $7,451.64 + $3,451.48 = $10,903.12
+- All-time P/L = $10,903.12 - $10,000 = **+$903.12** (WRONG!)
+
+The formula incorrectly treats the cost basis of holdings as profit. When prices equal the purchase price, the correct P/L should be **$0**.
+
+### Correct Formula
+
+```
+Total Return = Realized P/L + Unrealized P/L + Dividends - Fees
+
+Where:
+  Unrealized P/L = Σ((currentPrice - avgCost) × shares)
+  Realized P/L   = Σ(sell transactions' (sellPrice - avgCostAtSale) × shares)
+```
+
+---
 
 ## Implementation Plan
 
-### Phase 1: Chart Header Component
+### Phase 1: Database Schema Enhancement
 
-**New file: `src/components/ChartHeader.tsx`**
+Add `realized_pl` column to transactions table to track profit/loss on each sell.
 
-Dynamic header that updates during hover:
-- Large portfolio value display (e.g., "$12,450.32")
-- Gain/loss amount and percentage vs range start
-- Color changes: green for gains, red for losses
-- Smooth transitions during scrubbing
-- Resets to current value when hover ends
+**Migration SQL:**
+```sql
+ALTER TABLE transactions 
+ADD COLUMN realized_pl numeric DEFAULT NULL;
 
-### Phase 2: Time Range Selector
-
-**New file: `src/components/TimeRangeSelector.tsx`**
-
-Horizontal toggle buttons:
-- Options: 1D, 1W, 1M, 3M, YTD, 1Y, ALL
-- Note: Removing "LIVE" since we don't have real-time streaming data
-- Active state styling with primary color
-- Mobile-responsive with horizontal scroll if needed
-
-### Phase 3: Interactive Chart Component
-
-**New file: `src/components/InteractivePortfolioChart.tsx`**
-
-Main chart with hover interaction:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  <ChartHeader />                                            │
-│  $12,450.32                                                 │
-│  +$450.32 (+3.75%)                                         │
-│                                                             │
-│  ╭────────────────────────────────────────╮                 │
-│  │                     ●────────          │ ← Single line   │
-│  │              ╱─────╲       │           │                 │
-│  │ ┊─────────────────────────────────────-│ ← Baseline      │
-│  │            ╲_╱             │           │   (dotted)      │
-│  ╰────────────────────────────────────────╯                 │
-│                               ▲                             │
-│                          Crosshair                          │
-│                                                             │
-│  <TimeRangeSelector />                                      │
-│  [1D] [1W] [1M] [3M] [YTD] [1Y] [ALL]                      │
-│                                                             │
-│  "This shows how your portfolio's total value has           │
-│   changed over time."                                       │
-└─────────────────────────────────────────────────────────────┘
+COMMENT ON COLUMN transactions.realized_pl IS 
+'Profit/loss realized on SELL transactions: (sell_price - avg_cost_at_time) * shares';
 ```
 
-Key features:
-- **Hover detection**: onMouseMove captures X position, finds nearest data point
-- **Active dot**: Highlighted circle on the line at hover position
-- **Vertical crosshair**: Dashed line from data point down
-- **Baseline reference**: Horizontal dotted line at range start value
-- **Dynamic gradient fill**: Green above baseline, red below
-- **Touch support**: onTouchMove for mobile scrubbing
+### Phase 2: Create Income Table (Future-Proofing)
 
-### Phase 4: Chart Data Hook
+Add income table for dividends, interest, and fees.
 
-**New file: `src/hooks/usePortfolioChart.ts`**
+**Migration SQL:**
+```sql
+CREATE TABLE income (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  portfolio_id uuid NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+  symbol text,
+  type text NOT NULL CHECK (type IN ('DIVIDEND', 'INTEREST', 'FEE')),
+  amount numeric NOT NULL,
+  posted_at timestamp with time zone DEFAULT now(),
+  description text
+);
 
-Manages chart state and data filtering:
+ALTER TABLE income ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view income of their portfolios" ON income
+  FOR SELECT USING (
+    EXISTS (SELECT 1 FROM portfolios WHERE portfolios.id = income.portfolio_id AND portfolios.user_id = auth.uid())
+  );
+
+CREATE POLICY "Users can insert income for their portfolios" ON income
+  FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM portfolios WHERE portfolios.id = income.portfolio_id AND portfolios.user_id = auth.uid())
+  );
+```
+
+---
+
+### Phase 3: Fix Portfolio Metrics Calculation
+
+**File: `src/lib/portfolio.ts`**
+
+Replace the flawed `allTimePL` calculation with proper unrealized + realized P/L logic:
 
 ```typescript
-Input: {
-  valueHistory: ValueSnapshot[]
-  currentValue: number
-  timeRange: '1D' | '1W' | '1M' | '3M' | 'YTD' | '1Y' | 'ALL'
-}
+export const calculateUnrealizedPL = (holdings: Holding[]): number => {
+  return holdings.reduce((sum, h) => {
+    const currentPrice = h.currentPrice ?? h.avgCost;
+    const unrealized = (currentPrice - h.avgCost) * h.shares;
+    return sum + unrealized;
+  }, 0);
+};
 
-Output: {
-  chartData: { timestamp: number, value: number, date: string }[]
-  startValue: number
-  currentValue: number
-  absoluteChange: number
-  percentChange: number
-  isPositive: boolean
-  hoverIndex: number | null
-  setHoverIndex: (index: number | null) => void
-}
+export const calculateRealizedPL = (transactions: Transaction[]): number => {
+  return transactions
+    .filter(t => t.type === 'sell' && t.realizedPL !== undefined)
+    .reduce((sum, t) => sum + (t.realizedPL || 0), 0);
+};
+
+export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetrics => {
+  const totalValue = calculatePortfolioValue(portfolio);
+  const dailyPL = calculateDailyPL(portfolio.holdings);
+  
+  const previousValue = totalValue - dailyPL;
+  const dailyPLPercent = previousValue > 0 ? (dailyPL / previousValue) * 100 : 0;
+  
+  // FIXED: Calculate unrealized P/L correctly
+  const unrealizedPL = calculateUnrealizedPL(portfolio.holdings);
+  
+  // Calculate realized P/L from sell transactions
+  const realizedPL = calculateRealizedPL(portfolio.transactions);
+  
+  // Dividend income
+  const totalDividends = portfolio.totalDividendsEarned || 
+    (portfolio.dividendHistory || []).reduce((sum, d) => sum + d.totalAmount, 0);
+  
+  // Fees (from income table, default 0)
+  const totalFees = 0; // Will integrate with income table later
+  
+  // CORRECT FORMULA: Total Return = Realized + Unrealized + Dividends - Fees
+  const allTimePL = realizedPL + unrealizedPL;
+  const allTimePLPercent = portfolio.startingCash > 0 
+    ? (allTimePL / portfolio.startingCash) * 100 
+    : 0;
+  
+  const totalReturnWithDividends = allTimePL + totalDividends - totalFees;
+  const totalReturnWithDividendsPercent = portfolio.startingCash > 0
+    ? (totalReturnWithDividends / portfolio.startingCash) * 100
+    : 0;
+  
+  return {
+    totalValue,
+    dailyPL,
+    dailyPLPercent,
+    allTimePL,
+    allTimePLPercent,
+    cumulativeReturn: allTimePLPercent,
+    totalDividends,
+    totalReturnWithDividends,
+    totalReturnWithDividendsPercent,
+  };
+};
 ```
-
-Logic:
-1. Filter `valueHistory` based on selected time range
-2. Always append current portfolio value as latest point
-3. Calculate start value (first point in filtered range)
-4. Compute absolute and percent change
-5. Manage hover state for interactive updates
-
-### Phase 5: Integration
-
-**Modify: `src/pages/PortfolioDetail.tsx`**
-
-- Replace existing `<PortfolioChart>` with new `<InteractivePortfolioChart>`
-- Pass portfolio data and current metrics
-- The chart header replaces the "Total Value" card in MetricsGrid (avoid duplication)
 
 ---
 
-## Technical Details
+### Phase 4: Update Trade Execution for Realized P/L
 
-### Time Range Filtering
+**File: `src/components/TradeModal.tsx`**
 
-| Range | Filter Logic |
-|-------|--------------|
-| 1D    | Last 24 hours |
-| 1W    | Last 7 days |
-| 1M    | Last 30 days |
-| 3M    | Last 90 days |
-| YTD   | Since Jan 1 of current year |
-| 1Y    | Last 365 days |
-| ALL   | All available data |
+When selling, calculate and store `realized_pl`:
 
-### Hover Interaction Flow
-
+```typescript
+// On SELL: Calculate realized P/L
+if (tradeType === 'sell' && existingDbHolding) {
+  const avgCostAtSale = Number(existingDbHolding.avg_cost);
+  const realizedPL = (price - avgCostAtSale) * shareCount;
+  
+  // Store transaction with realized P/L
+  await supabase.from('transactions').insert({
+    portfolio_id: portfolio.id,
+    symbol: symbolToUse,
+    name: nameToUse,
+    type: 'sell',
+    shares: shareCount,
+    price: price,
+    total: total,
+    realized_pl: realizedPL,  // NEW FIELD
+  });
+}
 ```
-User hovers/touches chart
-    → onMouseMove / onTouchMove fires
-    → Calculate X position relative to chart
-    → Find nearest data point index
-    → setHoverIndex(index)
-    → ChartHeader re-renders with hovered point's value
-    → Active dot + crosshair render at that position
-
-User leaves chart
-    → onMouseLeave fires
-    → setHoverIndex(null)
-    → ChartHeader shows current (latest) value
-```
-
-### Edge Cases
-
-1. **New portfolios with 1-2 data points**
-   - Always render chart, even with minimal data
-   - Show flat or simple line connecting available points
-
-2. **No data for selected range**
-   - Fall back to showing all available data
-   - Display message: "Limited data available for this range"
-
-3. **All values are the same**
-   - Render flat line at that value
-   - Show 0% change, neutral gray color
-
-### Visual Design
-
-- Single smooth line (monotone interpolation)
-- Gradient fill under line (green for gains, red for losses)
-- Hidden Y-axis (values shown in header)
-- Minimal X-axis with sparse date labels
-- Subtle or hidden gridlines
-- Glass-card tooltip styling (consistent with existing design)
 
 ---
 
-## Files Summary
+### Phase 5: Update Type Definitions
 
-### New Files
+**File: `src/lib/types.ts`**
 
-| File | Purpose |
-|------|---------|
-| `src/components/ChartHeader.tsx` | Dynamic value display that updates on hover |
-| `src/components/TimeRangeSelector.tsx` | Time range toggle buttons |
-| `src/components/InteractivePortfolioChart.tsx` | Main chart with hover/scrub interaction |
-| `src/hooks/usePortfolioChart.ts` | Chart data filtering and hover state management |
+Add `realizedPL` to Transaction interface:
 
-### Modified Files
+```typescript
+export interface Transaction {
+  id: string;
+  symbol: string;
+  name: string;
+  type: 'buy' | 'sell';
+  shares: number;
+  price: number;
+  total: number;
+  timestamp: number;
+  realizedPL?: number;  // NEW: Only populated for sell transactions
+}
+```
+
+**File: `src/hooks/usePortfolios.ts`**
+
+Update DbTransaction and transformer to include `realized_pl`:
+
+```typescript
+export interface DbTransaction {
+  // ... existing fields
+  realized_pl: number | null;  // NEW
+}
+
+// In transformPortfolio:
+transactions: transactions.map((t): Transaction => ({
+  // ... existing fields
+  realizedPL: t.realized_pl ? Number(t.realized_pl) : undefined,
+})),
+```
+
+---
+
+## Acceptance Test Cases
+
+| Scenario | Expected Result |
+|----------|-----------------|
+| Buy asset, price unchanged | Holdings P/L = 0%, Total Return = $0 |
+| One holding +$50, another -$20 | Total Return = +$30 |
+| Sell with profit, no holdings left | Total Return shows realized profit |
+| Buy, price drops 10% | Total Return = negative (unrealized loss) |
+| Dividends received | Total Return includes dividend income |
+
+---
+
+## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/pages/PortfolioDetail.tsx` | Replace PortfolioChart, integrate new components |
-| `src/components/MetricsGrid.tsx` | Remove Total Value card (now in chart header) |
+| `src/lib/types.ts` | Add `realizedPL` to Transaction interface |
+| `src/lib/portfolio.ts` | Fix calculation logic with proper unrealized/realized P/L |
+| `src/hooks/usePortfolios.ts` | Add `realized_pl` to DbTransaction and transformer |
+| `src/components/TradeModal.tsx` | Calculate and store `realized_pl` on sell transactions |
 
-### Files to Keep (No Changes)
+## Database Migrations
 
-- `src/components/PortfolioChart.tsx` - Can be deleted after migration, or kept as fallback
-- All Edge Functions - No backend changes needed!
+1. Add `realized_pl` column to `transactions` table
+2. Create `income` table for future dividend/fee tracking
 
 ---
 
 ## Summary
 
-This simplified approach:
-- Uses existing `value_history` data (no new API calls)
-- Creates a polished Robinhood-style interactive experience
-- Supports time range filtering with smooth hover/scrub updates
-- Handles edge cases gracefully
-- Requires no backend changes
+This fix corrects the Total Return calculation by:
+
+1. Replacing the flawed `totalValue - startingCash` formula with proper `realizedPL + unrealizedPL + dividends - fees`
+2. Adding `realized_pl` tracking to sell transactions
+3. Ensuring UI consistency between Holdings table P/L and Total Return metrics
+4. Future-proofing with an `income` table for dividends and fees
 
