@@ -214,7 +214,7 @@ const InteractivePortfolioChart = ({
       <p className="text-xs text-muted-foreground mt-4">
         {hasLimitedData
           ? 'Limited historical data available. More data points will appear as the portfolio updates.'
-          : "This shows the value of your invested assets over time (excluding available cash)."}
+          : "Chart shows total portfolio value over time. Header displays current holdings value."}
       </p>
     </div>
   );
