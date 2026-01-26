@@ -129,6 +129,44 @@ export type Database = {
           },
         ]
       }
+      income: {
+        Row: {
+          amount: number
+          description: string | null
+          id: string
+          portfolio_id: string
+          posted_at: string | null
+          symbol: string | null
+          type: string
+        }
+        Insert: {
+          amount: number
+          description?: string | null
+          id?: string
+          portfolio_id: string
+          posted_at?: string | null
+          symbol?: string | null
+          type: string
+        }
+        Update: {
+          amount?: number
+          description?: string | null
+          id?: string
+          portfolio_id?: string
+          posted_at?: string | null
+          symbol?: string | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "income_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       portfolios: {
         Row: {
           cash: number
@@ -196,6 +234,7 @@ export type Database = {
           name: string
           portfolio_id: string
           price: number
+          realized_pl: number | null
           shares: number
           symbol: string
           total: number
@@ -207,6 +246,7 @@ export type Database = {
           name: string
           portfolio_id: string
           price: number
+          realized_pl?: number | null
           shares: number
           symbol: string
           total: number
@@ -218,6 +258,7 @@ export type Database = {
           name?: string
           portfolio_id?: string
           price?: number
+          realized_pl?: number | null
           shares?: number
           symbol?: string
           total?: number
