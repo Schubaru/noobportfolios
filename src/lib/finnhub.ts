@@ -204,7 +204,7 @@ export function formatMetricCurrency(num: number | null): string {
 
 // Client-side quote cache to avoid hammering the API
 const quoteCache = new Map<string, { quote: FinnhubQuote; timestamp: number }>();
-const QUOTE_CACHE_TTL = 30000; // 30 seconds cache
+const QUOTE_CACHE_TTL = 120000; // 2 minutes cache to handle API outages
 
 // Helper to delay between requests
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

@@ -8,7 +8,7 @@ const corsHeaders = {
 // In-memory cache (resets on cold start, but effective for warm instances)
 const cache = new Map<string, { data: unknown; expiry: number }>();
 
-const CACHE_TTL_SECONDS = 10;
+const CACHE_TTL_SECONDS = 60; // Increased to reduce API calls
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 500;
 
