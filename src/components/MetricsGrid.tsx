@@ -1,4 +1,4 @@
-import { TrendingUp, TrendingDown, DollarSign, Percent, Wallet, Coins } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Coins } from 'lucide-react';
 import { PortfolioMetrics } from '@/lib/types';
 import { formatCurrency, formatPercent, formatPL } from '@/lib/portfolio';
 
@@ -12,13 +12,6 @@ const MetricsGrid = ({ metrics, cash, onDividendClick }: MetricsGridProps) => {
   const hasDividends = metrics.totalDividends > 0;
   
   const stats = [
-    {
-      label: 'Total Value',
-      value: formatCurrency(metrics.totalValue),
-      icon: DollarSign,
-      positive: true,
-      highlight: true,
-    },
     {
       label: 'Daily P/L',
       value: formatPL(metrics.dailyPL),
@@ -54,12 +47,12 @@ const MetricsGrid = ({ metrics, cash, onDividendClick }: MetricsGridProps) => {
   ];
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       {stats.map((stat) => (
         <div 
           key={stat.label}
           onClick={stat.clickable ? stat.onClick : undefined}
-          className={`glass-card p-4 ${stat.highlight ? 'col-span-2 lg:col-span-1' : ''} ${
+          className={`glass-card p-4 ${
             stat.clickable ? 'cursor-pointer hover:border-primary/50 transition-colors' : ''
           } ${stat.special === 'dividend' && hasDividends ? 'border-success/30' : ''}`}
         >
