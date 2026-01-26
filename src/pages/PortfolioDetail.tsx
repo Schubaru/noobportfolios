@@ -54,29 +54,44 @@ const PortfolioDetail = () => {
 
     // Create a copy for local state with updated prices
     let portfolioWithPrices = { ...data, holdings: [...data.holdings] };
+    let hasApiErrors = false;
 
     // Update prices for holdings using real Finnhub API
     if (data.holdings.length > 0) {
       const symbols = data.holdings.map(h => h.symbol);
-      const quotes = await fetchMultipleQuotes(symbols);
       
-      portfolioWithPrices.holdings = data.holdings.map(h => {
-        const quote = quotes.get(h.symbol.toUpperCase());
-        if (quote) {
-          return {
-            ...h,
-            currentPrice: quote.price,
-            previousClose: quote.prevClose,
-          };
-        }
-        return h;
-      });
+      try {
+        const quotes = await fetchMultipleQuotes(symbols);
+        
+        portfolioWithPrices.holdings = data.holdings.map(h => {
+          const quote = quotes.get(h.symbol.toUpperCase());
+          if (quote) {
+            return {
+              ...h,
+              currentPrice: quote.price,
+              previousClose: quote.prevClose,
+            };
+          }
+          // If no quote available, keep existing prices (graceful degradation)
+          return h;
+        });
+      } catch (error) {
+        console.error('Error fetching quotes, using last known prices:', error);
+        hasApiErrors = true;
+        // portfolioWithPrices keeps the original holdings with their last known prices
+      }
     }
 
     setPortfolio(portfolioWithPrices);
     setMetrics(calculatePortfolioMetrics(portfolioWithPrices));
     setIsLoading(false);
     setHasFetchedPrices(true);
+    
+    // Show toast if API had errors
+    if (hasApiErrors && forceRefresh) {
+      // Only show on manual refresh, not on initial load
+      console.warn('Using last known prices due to market data API issues');
+    }
   }, [id, getPortfolio, portfoliosLoading, navigate, hasFetchedPrices]);
 
   // Load when portfolios are ready - only once
