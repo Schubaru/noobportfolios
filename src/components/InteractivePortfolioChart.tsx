@@ -16,13 +16,15 @@ import TimeRangeSelector from './TimeRangeSelector';
 
 interface InteractivePortfolioChartProps {
   valueHistory: ValueSnapshot[];
-  currentValue: number;
+  currentValue: number; // Current holdings value (excluding cash)
+  cash: number; // Current cash balance (for adjusting historical values)
   className?: string;
 }
 
 const InteractivePortfolioChart = ({
   valueHistory,
   currentValue,
+  cash,
   className = '',
 }: InteractivePortfolioChartProps) => {
   const chartRef = useRef<HTMLDivElement>(null);
@@ -40,7 +42,7 @@ const InteractivePortfolioChart = ({
     displayChange,
     displayChangePercent,
     hasLimitedData,
-  } = usePortfolioChart({ valueHistory, currentValue });
+  } = usePortfolioChart({ valueHistory, currentValue, cash });
 
   // Calculate Y-axis domain with padding
   const values = chartData.map((d) => d.value);
@@ -212,7 +214,7 @@ const InteractivePortfolioChart = ({
       <p className="text-xs text-muted-foreground mt-4">
         {hasLimitedData
           ? 'Limited historical data available. More data points will appear as the portfolio updates.'
-          : "This shows how your portfolio's total value has changed over time."}
+          : "This shows the value of your invested assets over time (excluding available cash)."}
       </p>
     </div>
   );

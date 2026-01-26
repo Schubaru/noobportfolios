@@ -5,7 +5,8 @@ export type TimeRange = '1D' | '1W' | '1M' | '3M' | 'YTD' | '1Y' | 'ALL';
 
 interface UsePortfolioChartProps {
   valueHistory: ValueSnapshot[];
-  currentValue: number;
+  currentValue: number; // Current holdings value (excluding cash)
+  cash: number; // Current cash balance to subtract from historical values
 }
 
 interface ChartDataPoint {
@@ -73,6 +74,7 @@ const formatDateForRange = (timestamp: number, range: TimeRange): string => {
 export const usePortfolioChart = ({
   valueHistory,
   currentValue,
+  cash,
 }: UsePortfolioChartProps): UsePortfolioChartReturn => {
   const [timeRange, setTimeRange] = useState<TimeRange>('1W');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -92,14 +94,17 @@ export const usePortfolioChart = ({
     filtered.sort((a, b) => a.timestamp - b.timestamp);
     
     // Convert to chart data points
+    // Note: valueHistory stores total portfolio value (cash + holdings)
+    // We subtract current cash to get holdings-only value
+    // This is an approximation - assumes cash hasn't changed significantly over time
     const points: ChartDataPoint[] = filtered.map((v, idx) => ({
       timestamp: v.timestamp,
-      value: v.value,
+      value: Math.max(0, v.value - cash), // Holdings value = total - cash
       date: formatDateForRange(v.timestamp, timeRange),
       index: idx,
     }));
     
-    // Add current value as the latest point if it's different from the last recorded value
+    // Add current holdings value as the latest point if it's different from the last recorded value
     const lastRecorded = points[points.length - 1];
     if (!lastRecorded || Math.abs(lastRecorded.value - currentValue) > 0.01) {
       points.push({
@@ -111,7 +116,7 @@ export const usePortfolioChart = ({
     }
     
     return points;
-  }, [valueHistory, currentValue, timeRange]);
+  }, [valueHistory, currentValue, cash, timeRange]);
 
   const startValue = chartData.length > 0 ? chartData[0].value : currentValue;
   const absoluteChange = currentValue - startValue;
