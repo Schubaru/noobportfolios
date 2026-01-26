@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Trash2, ArrowRightLeft, Clock } from 'lucide-react';
 import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
-import PortfolioChart from '@/components/PortfolioChart';
+import InteractivePortfolioChart from '@/components/InteractivePortfolioChart';
 import MetricsGrid from '@/components/MetricsGrid';
 import HoldingsTable from '@/components/HoldingsTable';
 import AllocationChart from '@/components/AllocationChart';
@@ -12,7 +12,7 @@ import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
 import { usePortfolios } from '@/hooks/usePortfolios';
-import { calculatePortfolioMetrics } from '@/lib/portfolio';
+import { calculatePortfolioMetrics, calculatePortfolioValue } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
@@ -228,9 +228,12 @@ const PortfolioDetail = () => {
           </div>
         </div>
 
-        {/* Chart */}
+        {/* Interactive Chart */}
         <div className="glass-card p-6 mb-6">
-          <PortfolioChart valueHistory={portfolio.valueHistory} />
+          <InteractivePortfolioChart 
+            valueHistory={portfolio.valueHistory} 
+            currentValue={calculatePortfolioValue(portfolio)}
+          />
         </div>
 
         {/* Metrics */}
