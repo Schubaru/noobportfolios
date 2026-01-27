@@ -93,6 +93,8 @@ export interface DividendInfo {
 
 export interface PortfolioMetrics {
   totalValue: number;
+  holdingsValue: number; // Current market value of holdings (excludes cash)
+  costBasis: number; // Total amount spent on current holdings
   dailyPL: number;
   dailyPLPercent: number;
   allTimePL: number;

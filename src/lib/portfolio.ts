@@ -4,6 +4,10 @@ export const calculateHoldingsValue = (holdings: Holding[]): number => {
   return holdings.reduce((sum, h) => sum + (h.currentPrice || h.avgCost) * h.shares, 0);
 };
 
+export const calculateCostBasis = (holdings: Holding[]): number => {
+  return holdings.reduce((sum, h) => sum + h.avgCost * h.shares, 0);
+};
+
 export const calculatePortfolioValue = (portfolio: Portfolio): number => {
   const holdingsValue = calculateHoldingsValue(portfolio.holdings);
   return portfolio.cash + holdingsValue;
@@ -40,13 +44,15 @@ export const calculateRealizedPL = (transactions: Transaction[]): number => {
 };
 
 export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetrics => {
-  const totalValue = calculatePortfolioValue(portfolio);
+  const holdingsValue = calculateHoldingsValue(portfolio.holdings);
+  const costBasis = calculateCostBasis(portfolio.holdings);
+  const totalValue = portfolio.cash + holdingsValue;
   const dailyPL = calculateDailyPL(portfolio.holdings);
   
-  const previousValue = totalValue - dailyPL;
-  const dailyPLPercent = previousValue > 0 ? (dailyPL / previousValue) * 100 : 0;
+  const previousHoldingsValue = holdingsValue - dailyPL;
+  const dailyPLPercent = previousHoldingsValue > 0 ? (dailyPL / previousHoldingsValue) * 100 : 0;
   
-  // FIXED: Calculate unrealized P/L correctly (not totalValue - startingCash)
+  // Unrealized P/L = current market value - cost basis
   const unrealizedPL = calculateUnrealizedPL(portfolio.holdings);
   
   // Calculate realized P/L from sell transactions
@@ -59,21 +65,25 @@ export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetric
   // Fees (from income table, default 0 until integrated)
   const totalFees = 0;
   
-  // CORRECT FORMULA: Total Return = Realized + Unrealized + Dividends - Fees
+  // Total Return = Realized + Unrealized + Dividends - Fees
   const allTimePL = realizedPL + unrealizedPL;
-  const allTimePLPercent = portfolio.startingCash > 0 
-    ? (allTimePL / portfolio.startingCash) * 100 
+  
+  // Percent based on cost basis (what you actually invested)
+  const allTimePLPercent = costBasis > 0 
+    ? (unrealizedPL / costBasis) * 100 
     : 0;
   const cumulativeReturn = allTimePLPercent;
   
   // Total return including dividends
   const totalReturnWithDividends = allTimePL + totalDividends - totalFees;
-  const totalReturnWithDividendsPercent = portfolio.startingCash > 0
-    ? (totalReturnWithDividends / portfolio.startingCash) * 100
+  const totalReturnWithDividendsPercent = costBasis > 0
+    ? (totalReturnWithDividends / costBasis) * 100
     : 0;
   
   return {
     totalValue,
+    holdingsValue,
+    costBasis,
     dailyPL,
     dailyPLPercent,
     allTimePL,
