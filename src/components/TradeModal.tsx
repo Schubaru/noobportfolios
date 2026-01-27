@@ -660,8 +660,8 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
 
       if (txError) throw txError;
 
-      // 4. Add value history entry
-      // Calculate new portfolio value
+      // 4. Add value history entry with invested_value
+      // Calculate holdings value (invested assets only, excluding cash)
       const holdingsValue = portfolio.holdings.reduce((sum, h) => {
         if (h.symbol === symbolToUse) {
           // Use updated shares for this holding
@@ -679,13 +679,16 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
       const isNewAsset = !portfolio.holdings.find(h => h.symbol === symbolToUse);
       const newAssetValue = isNewAsset && tradeType === 'buy' ? price * shareCount : 0;
 
-      const newPortfolioValue = newCash + holdingsValue + newAssetValue;
+      const investedValue = holdingsValue + newAssetValue;
+      const newPortfolioValue = newCash + investedValue;
 
       const { error: valueError } = await supabase
         .from('value_history')
         .insert({
           portfolio_id: portfolio.id,
           value: newPortfolioValue,
+          invested_value: investedValue,
+          source: 'trade',
         });
 
       if (valueError) throw valueError;

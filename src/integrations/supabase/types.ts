@@ -277,20 +277,26 @@ export type Database = {
       value_history: {
         Row: {
           id: string
+          invested_value: number | null
           portfolio_id: string
           recorded_at: string
+          source: string | null
           value: number
         }
         Insert: {
           id?: string
+          invested_value?: number | null
           portfolio_id: string
           recorded_at?: string
+          source?: string | null
           value: number
         }
         Update: {
           id?: string
+          invested_value?: number | null
           portfolio_id?: string
           recorded_at?: string
+          source?: string | null
           value?: number
         }
         Relationships: [

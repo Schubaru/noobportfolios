@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Trash2, ArrowRightLeft, Clock } from 'lucide-react';
 import Header from '@/components/Header';
@@ -14,6 +14,7 @@ import DividendBreakdown from '@/components/DividendBreakdown';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
+import { recordPortfolioSnapshot } from '@/lib/snapshotService';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
 
@@ -32,6 +33,8 @@ const PortfolioDetail = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDividendBreakdown, setShowDividendBreakdown] = useState(false);
   const [hasFetchedPrices, setHasFetchedPrices] = useState(false);
+  const [snapshotKey, setSnapshotKey] = useState(0); // Force chart refresh after snapshot
+  const hasRecordedSnapshot = useRef(false);
 
   const loadPortfolioData = useCallback(async (forceRefresh = false) => {
     if (!id) return;
@@ -105,6 +108,19 @@ const PortfolioDetail = () => {
       loadPortfolioData();
     }
   }, [portfoliosLoading, id, hasFetchedPrices, loadPortfolioData]);
+
+  // Record snapshot on page load (throttled to max 1 per 5 minutes)
+  useEffect(() => {
+    if (portfolio && id && !hasRecordedSnapshot.current) {
+      hasRecordedSnapshot.current = true;
+      recordPortfolioSnapshot(id, 'page_view').then((result) => {
+        if (result.recorded) {
+          // Trigger chart refresh to pick up new snapshot
+          setSnapshotKey((k) => k + 1);
+        }
+      });
+    }
+  }, [portfolio, id]);
 
   // Refresh prices periodically
   useEffect(() => {
@@ -232,9 +248,9 @@ const PortfolioDetail = () => {
         <div className="glass-card p-6 mb-6">
           <InteractivePortfolioChart
             portfolioId={portfolio.id}
-            holdingsKey={portfolio.holdings
+            holdingsKey={`${portfolio.holdings
               .map((h) => `${h.symbol}:${h.shares}`)
-              .join('|')}
+              .join('|')}|snap:${snapshotKey}`}
           />
         </div>
 
