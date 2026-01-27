@@ -15,6 +15,9 @@ verify_jwt = false
 [functions.market-dividends]
 verify_jwt = false
 
+[functions.market-history]
+verify_jwt = false
+
 [functions.get-top-growth-picks]
 verify_jwt = false
 

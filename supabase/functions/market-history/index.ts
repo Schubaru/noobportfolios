@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
   try {
     const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
     if (!FINNHUB_API_KEY) {
+      console.error('Missing FINNHUB_API_KEY');
       return new Response(
         JSON.stringify({ error: 'Missing FINNHUB_API_KEY in Secrets.' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
 
     const url = new URL(req.url);
     const symbol = url.searchParams.get('symbol')?.toUpperCase();
-    const resolution = url.searchParams.get('resolution') || 'D';
+    let resolution = url.searchParams.get('resolution') || 'D';
     const from = url.searchParams.get('from');
     const to = url.searchParams.get('to');
 
@@ -71,27 +72,29 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Keep supported resolutions intentionally narrow (data-only)
-    const allowed = new Set(['15', 'D']);
-    if (!allowed.has(resolution)) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid resolution. Use 15 (intraday) or D (daily).' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Finnhub free tier only supports daily candles.
+    // Always use 'D' resolution—intraday requires a premium subscription.
+    if (resolution !== 'D') {
+      console.log(`Requested resolution ${resolution} not supported on free tier; falling back to D`);
+      resolution = 'D';
     }
 
     const cacheKey = `candles:${symbol}:${resolution}:${from}:${to}`;
     const cached = cache.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
+      console.log(`Cache hit for ${cacheKey}`);
       return new Response(JSON.stringify(cached.data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    console.log(`Fetching candles for ${symbol} (${resolution}) from=${from} to=${to}`);
+
     const finnhubUrl = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${encodeURIComponent(resolution)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${FINNHUB_API_KEY}`;
     const response = await fetchWithRetry(finnhubUrl);
 
     if (!response.ok) {
+      console.error(`Finnhub responded with status ${response.status}`);
       if (response.status === 429) {
         return new Response(
           JSON.stringify({ error: 'Rate limited. Please retry after a short delay.' }),
@@ -105,8 +108,10 @@ Deno.serve(async (req) => {
     }
 
     const data = await response.json();
+
     // Finnhub candle API: s == "ok" when data exists.
     if (!data || data.s !== 'ok' || !Array.isArray(data.t) || !Array.isArray(data.c)) {
+      console.warn(`No candle data for ${symbol}:`, data?.s);
       return new Response(
         JSON.stringify({ error: `No historical data available for: ${symbol}` }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -118,9 +123,11 @@ Deno.serve(async (req) => {
       close: data.c[i],
     }));
 
+    console.log(`Returning ${candles.length} candles for ${symbol}`);
+
     const normalized = { symbol, resolution, candles };
 
-    const ttlMs = resolution === '15' ? 5 * 60_000 : 60 * 60_000;
+    const ttlMs = 60 * 60_000; // 1 hour cache for daily candles
     cache.set(cacheKey, { data: normalized, expiry: Date.now() + ttlMs });
 
     return new Response(JSON.stringify(normalized), {
