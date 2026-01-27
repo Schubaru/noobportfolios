@@ -3,6 +3,11 @@
  * 
  * Reads from value_history table (self-recorded snapshots) to build
  * the portfolio chart. Works with Finnhub free tier.
+ * 
+ * IMPORTANT: Only uses snapshots with valid `invested_value` column.
+ * Legacy snapshots (invested_value = NULL) are ignored because they
+ * stored total portfolio value (cash + holdings), which would create
+ * false loss calculations when compared to holdings-only values.
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -60,11 +65,13 @@ export async function buildInvestedValueSeries(
   const rangeStartISO = new Date(rangeStartMs).toISOString();
 
   try {
-    // Query snapshots within the time range
+    // Query snapshots within the time range that have valid invested_value
+    // CRITICAL: Filter out legacy snapshots where invested_value is NULL
     const { data: snapshots, error } = await supabase
       .from('value_history')
-      .select('recorded_at, invested_value, value')
+      .select('recorded_at, invested_value')
       .eq('portfolio_id', portfolioId)
+      .not('invested_value', 'is', null) // Only snapshots with invested_value
       .gte('recorded_at', rangeStartISO)
       .order('recorded_at', { ascending: true });
 
@@ -78,20 +85,7 @@ export async function buildInvestedValueSeries(
     
     for (const snap of snapshots || []) {
       const timestamp = new Date(snap.recorded_at).getTime();
-      
-      // Use invested_value if available, otherwise approximate from total value
-      // (legacy snapshots may only have 'value' which includes cash)
-      let investedValue: number;
-      
-      if (snap.invested_value !== null && snap.invested_value !== undefined) {
-        investedValue = Number(snap.invested_value);
-      } else if (snap.value !== null) {
-        // Legacy fallback: can't perfectly extract invested-only value
-        // but this is better than nothing
-        investedValue = Number(snap.value);
-      } else {
-        continue; // Skip invalid snapshots
-      }
+      const investedValue = Number(snap.invested_value);
       
       series.push({
         timestamp,
@@ -99,14 +93,16 @@ export async function buildInvestedValueSeries(
       });
     }
 
-    // If we have data points, ensure we also have a "now" point with current value
+    // Get current value
+    const currentValue = await fetchCurrentInvestedValue(portfolioId);
+
+    // If we have valid data points, ensure we also have a "now" point
     if (series.length > 0) {
       const lastPoint = series[series.length - 1];
       const timeSinceLastPoint = nowMs - lastPoint.timestamp;
       
       // If last point is more than 1 minute old, add current value
       if (timeSinceLastPoint > 60_000) {
-        const currentValue = await fetchCurrentInvestedValue(portfolioId);
         series.push({
           timestamp: nowMs,
           investedValue: currentValue,
@@ -116,35 +112,31 @@ export async function buildInvestedValueSeries(
       return { series, hasHistory: series.length >= 2 };
     }
 
-    // No snapshots in range - try to get the most recent snapshot before range
+    // No valid snapshots in range - try to get the most recent valid snapshot before range
     const { data: lastSnapshot } = await supabase
       .from('value_history')
-      .select('recorded_at, invested_value, value')
+      .select('recorded_at, invested_value')
       .eq('portfolio_id', portfolioId)
+      .not('invested_value', 'is', null) // Only valid snapshots
       .lt('recorded_at', rangeStartISO)
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    // Get current value
-    const currentValue = await fetchCurrentInvestedValue(portfolioId);
-
     if (lastSnapshot) {
-      // We have a snapshot before the range start - use it as baseline
-      const baselineValue = lastSnapshot.invested_value !== null 
-        ? Number(lastSnapshot.invested_value) 
-        : Number(lastSnapshot.value ?? 0);
+      // We have a valid snapshot before the range start - use it as baseline
+      const baselineValue = round2(Number(lastSnapshot.invested_value));
       
       return {
         series: [
-          { timestamp: rangeStartMs, investedValue: round2(baselineValue) },
+          { timestamp: rangeStartMs, investedValue: baselineValue },
           { timestamp: nowMs, investedValue: currentValue },
         ],
         hasHistory: true,
       };
     }
 
-    // No history at all - show flat line at current value
+    // No valid history at all - show flat line at current value
     // Two identical points = $0 change, hasHistory=false shows "—%"
     return {
       series: [
