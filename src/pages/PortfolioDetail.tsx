@@ -4,7 +4,6 @@ import { ArrowLeft, RefreshCw, Trash2, ArrowRightLeft, Clock } from 'lucide-reac
 import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
 import PerformanceSummary from '@/components/PerformanceSummary';
-import MetricsGrid from '@/components/MetricsGrid';
 import HoldingsTable from '@/components/HoldingsTable';
 import AllocationChart from '@/components/AllocationChart';
 import DiversityScore from '@/components/DiversityScore';
@@ -234,15 +233,6 @@ const PortfolioDetail = () => {
             metrics={metrics}
             cash={portfolio.cash}
             startingCash={portfolio.startingCash}
-          />
-        </div>
-
-        {/* Metrics */}
-        <div className="mb-6">
-          <MetricsGrid 
-            metrics={metrics} 
-            cash={portfolio.cash} 
-            onDividendClick={() => setShowDividendBreakdown(true)}
           />
         </div>
 
