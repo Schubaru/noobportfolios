@@ -220,10 +220,10 @@ const InteractivePortfolioChart = ({
       {/* Helper text */}
       <p className="text-xs text-muted-foreground mt-4">
         {!hasHistory
-          ? 'Historical price data unavailable. Showing current invested value.'
+          ? 'Chart shows your portfolio value since you started. History grows as you use the app.'
           : hasLimitedData
-          ? 'Limited historical data available. More data points will appear as the portfolio updates.'
-          : 'Chart shows the value of your invested assets over time (excluding available cash).'}
+          ? 'More data will appear as you use the app. Keep trading to build your chart history.'
+          : 'Chart shows your invested assets over time (excluding cash). Updates on trades and page visits.'}
       </p>
     </div>
   );
