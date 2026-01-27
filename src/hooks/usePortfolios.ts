@@ -254,30 +254,6 @@ export const usePortfolios = () => {
     }
   };
 
-  const regenerateExamplePortfolio = async (portfolioId: string): Promise<boolean> => {
-    if (!session) return false;
-
-    try {
-      const response = await supabase.functions.invoke('regenerate-portfolio', {
-        body: { portfolioId },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (response.error) {
-        console.error('Error regenerating portfolio:', response.error);
-        return false;
-      }
-
-      await fetchPortfolios();
-      return true;
-    } catch (error) {
-      console.error('Error calling regenerate-portfolio:', error);
-      return false;
-    }
-  };
-
   const getPortfolio = (id: string): Portfolio | undefined => {
     return portfolios.find(p => p.id === id);
   };
@@ -307,6 +283,5 @@ export const usePortfolios = () => {
     createPortfolio,
     deletePortfolio,
     getPortfolio,
-    regenerateExamplePortfolio,
   };
 };

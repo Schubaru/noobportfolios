@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { TrendingUp, TrendingDown, ChevronRight, Sparkles, Coins, RefreshCw } from 'lucide-react';
+import { TrendingUp, TrendingDown, ChevronRight, Sparkles, Coins } from 'lucide-react';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
 import { formatCurrency, formatPercent, formatPL } from '@/lib/portfolio';
 import { calculateDiversityScore, getDiversityColor } from '@/lib/diversity';
@@ -8,20 +8,13 @@ import { Badge } from '@/components/ui/badge';
 interface PortfolioCardProps {
   portfolio: Portfolio;
   metrics: PortfolioMetrics;
-  onRegenerate?: () => void;
 }
 
-const PortfolioCard = ({ portfolio, metrics, onRegenerate }: PortfolioCardProps) => {
+const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
   const diversity = calculateDiversityScore(portfolio.holdings);
   const isPositiveDaily = metrics.dailyPL >= 0;
   const isPositiveTotalReturn = metrics.totalReturnWithDividends >= 0;
   const hasDividends = metrics.totalDividends > 0;
-
-  const handleRegenerateClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onRegenerate?.();
-  };
 
   return (
     <Link
@@ -44,15 +37,6 @@ const PortfolioCard = ({ portfolio, metrics, onRegenerate }: PortfolioCardProps)
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {portfolio.isExample && onRegenerate && (
-            <button
-              onClick={handleRegenerateClick}
-              className="p-2 rounded-lg bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              title="Regenerate with today's top picks"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          )}
           <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-1 transition-all" />
         </div>
       </div>

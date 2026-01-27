@@ -4,7 +4,6 @@ import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
 import PortfolioCard from '@/components/PortfolioCard';
 import CreatePortfolioModal from '@/components/CreatePortfolioModal';
-import RegeneratePortfolioModal from '@/components/RegeneratePortfolioModal';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
@@ -17,11 +16,8 @@ const Index = () => {
     isLoading, 
     isInitializing, 
     createPortfolio: createNewPortfolio, 
-    regenerateExamplePortfolio,
-    fetchPortfolios,
   } = usePortfolios();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [regeneratePortfolio, setRegeneratePortfolio] = useState<Portfolio | null>(null);
 
   const handlePortfolioCreated = async (name: string) => {
     const portfolio = await createNewPortfolio(name);
@@ -31,17 +27,6 @@ const Index = () => {
       toast.error('Failed to create portfolio');
     }
     setIsCreateModalOpen(false);
-  };
-
-  const handleRegenerate = async () => {
-    if (!regeneratePortfolio) return;
-    
-    const success = await regenerateExamplePortfolio(regeneratePortfolio.id);
-    if (success) {
-      toast.success('Portfolio regenerated with today\'s top picks!');
-    } else {
-      toast.error('Failed to regenerate portfolio');
-    }
   };
 
   const getMetrics = (portfolio: Portfolio): PortfolioMetrics => {
@@ -106,7 +91,7 @@ const Index = () => {
           <Alert className="mb-6 bg-muted/50 border-muted">
             <Info className="h-4 w-4" />
             <AlertDescription>
-              We auto-built your example portfolio using today's market leaders. You can edit or delete it anytime, or click the refresh icon to regenerate with fresh picks.
+              We auto-built your example portfolio using today's market leaders. You can edit or delete it anytime.
             </AlertDescription>
           </Alert>
         )}
@@ -123,7 +108,6 @@ const Index = () => {
                 <PortfolioCard 
                   portfolio={portfolio} 
                   metrics={getMetrics(portfolio)}
-                  onRegenerate={portfolio.isExample ? () => setRegeneratePortfolio(portfolio) : undefined}
                 />
               </div>
             ))}
@@ -156,13 +140,6 @@ const Index = () => {
         isOpen={isCreateModalOpen} 
         onClose={() => setIsCreateModalOpen(false)} 
         onCreated={handlePortfolioCreated} 
-      />
-
-      <RegeneratePortfolioModal
-        isOpen={!!regeneratePortfolio}
-        onClose={() => setRegeneratePortfolio(null)}
-        onConfirm={handleRegenerate}
-        portfolioName={regeneratePortfolio?.name || ''}
       />
       
       <Disclaimer />

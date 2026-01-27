@@ -82,6 +82,8 @@ export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetric
     totalDividends,
     totalReturnWithDividends,
     totalReturnWithDividendsPercent,
+    unrealizedPL,
+    realizedPL,
   };
 };
 

@@ -101,6 +101,8 @@ export interface PortfolioMetrics {
   totalDividends: number;
   totalReturnWithDividends: number;
   totalReturnWithDividendsPercent: number;
+  unrealizedPL: number;
+  realizedPL: number;
 }
 
 export interface AllocationItem {
