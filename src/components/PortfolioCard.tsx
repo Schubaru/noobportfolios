@@ -1,8 +1,7 @@
 import { Link } from 'react-router-dom';
-import { TrendingUp, TrendingDown, ChevronRight, Sparkles, Coins } from 'lucide-react';
+import { TrendingUp, TrendingDown, ChevronRight, Sparkles } from 'lucide-react';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
 import { formatCurrency, formatPercent, formatPL } from '@/lib/portfolio';
-import { calculateDiversityScore, getDiversityColor } from '@/lib/diversity';
 import { Badge } from '@/components/ui/badge';
 
 interface PortfolioCardProps {
@@ -11,10 +10,8 @@ interface PortfolioCardProps {
 }
 
 const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
-  const diversity = calculateDiversityScore(portfolio.holdings);
   const isPositiveDaily = metrics.dailyPL >= 0;
   const isPositiveReturn = metrics.unrealizedPL >= 0;
-  const hasDividends = metrics.totalDividends > 0;
   const hasHoldings = metrics.holdingsValue > 0;
 
   return (
@@ -42,16 +39,20 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Daily P/L</p>
-          <div className={`flex items-center gap-1 ${isPositiveDaily ? 'text-success' : 'text-destructive'}`}>
-            {isPositiveDaily ? (
-              <TrendingUp className="w-3.5 h-3.5" />
-            ) : (
-              <TrendingDown className="w-3.5 h-3.5" />
-            )}
-            <span className="text-sm font-medium">{formatPL(metrics.dailyPL)}</span>
+          <div className={`flex items-center gap-1 ${hasHoldings ? (isPositiveDaily ? 'text-success' : 'text-destructive') : 'text-muted-foreground'}`}>
+            {hasHoldings ? (
+              isPositiveDaily ? (
+                <TrendingUp className="w-3.5 h-3.5" />
+              ) : (
+                <TrendingDown className="w-3.5 h-3.5" />
+              )
+            ) : null}
+            <span className="text-sm font-medium">
+              {hasHoldings ? formatPL(metrics.dailyPL) : '—'}
+            </span>
           </div>
         </div>
 
@@ -66,34 +67,8 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
               )
             ) : null}
             <span className="text-sm font-medium">
-              {hasHoldings ? formatPercent(metrics.allTimePLPercent) : '—'}
+              {hasHoldings ? `${formatPL(metrics.unrealizedPL)} (${formatPercent(metrics.allTimePLPercent)})` : '—'}
             </span>
-          </div>
-        </div>
-
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Dividends</p>
-          <div className={`flex items-center gap-1 ${hasDividends ? 'text-success' : 'text-muted-foreground'}`}>
-            <Coins className="w-3.5 h-3.5" />
-            <span className="text-sm font-medium">
-              {hasDividends ? formatCurrency(metrics.totalDividends) : '$0.00'}
-            </span>
-          </div>
-        </div>
-
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Diversity</p>
-          <div className="flex items-center gap-2">
-            <div className="w-12 h-1.5 rounded-full bg-muted overflow-hidden">
-              <div 
-                className="h-full rounded-full transition-all duration-500"
-                style={{ 
-                  width: `${diversity.score}%`,
-                  backgroundColor: getDiversityColor(diversity.score),
-                }}
-              />
-            </div>
-            <span className="text-sm font-medium">{diversity.score}</span>
           </div>
         </div>
       </div>
