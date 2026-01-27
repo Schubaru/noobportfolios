@@ -40,6 +40,7 @@ const InteractivePortfolioChart = ({
     displayChangePercent,
     hasLimitedData,
     isLoading,
+    hasHistory,
   } = usePortfolioChart({ portfolioId, holdingsKey });
 
   // Calculate Y-axis domain with padding
@@ -218,9 +219,11 @@ const InteractivePortfolioChart = ({
 
       {/* Helper text */}
       <p className="text-xs text-muted-foreground mt-4">
-        {hasLimitedData
+        {!hasHistory
+          ? 'Historical price data unavailable. Showing current invested value.'
+          : hasLimitedData
           ? 'Limited historical data available. More data points will appear as the portfolio updates.'
-          : "Chart shows the value of your invested assets over time (excluding available cash)."}
+          : 'Chart shows the value of your invested assets over time (excluding available cash).'}
       </p>
     </div>
   );
