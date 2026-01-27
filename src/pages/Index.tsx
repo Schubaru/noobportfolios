@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Briefcase, Sparkles, Loader2, Info, RefreshCw } from 'lucide-react';
+import { Briefcase, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
 import PortfolioCard from '@/components/PortfolioCard';
@@ -9,7 +9,7 @@ import { usePortfolioQuotes } from '@/hooks/usePortfolioQuotes';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
 import { toast } from 'sonner';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+
 
 const Index = () => {
   const { 
@@ -46,7 +46,7 @@ const Index = () => {
     return sum + metrics.holdingsValue;
   }, 0);
 
-  const examplePortfolio = portfolios.find(p => p.isExample);
+  
 
   return (
     <div className="min-h-screen bg-background">
@@ -109,15 +109,6 @@ const Index = () => {
           </div>
         )}
 
-        {/* Example Portfolio Note */}
-        {!isLoading && !isInitializing && examplePortfolio && (
-          <Alert className="mb-6 bg-muted/50 border-muted">
-            <Info className="h-4 w-4" />
-            <AlertDescription>
-              We auto-built your example portfolio using today's market leaders. You can edit or delete it anytime.
-            </AlertDescription>
-          </Alert>
-        )}
 
         {/* Portfolios Grid */}
         {!isLoading && !isInitializing && portfolios.length > 0 && (
