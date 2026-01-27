@@ -13,12 +13,53 @@ export const calculatePortfolioValue = (portfolio: Portfolio): number => {
   return portfolio.cash + holdingsValue;
 };
 
-export const calculateDailyPL = (holdings: Holding[]): number => {
-  return holdings.reduce((sum, h) => {
-    const current = h.currentPrice || h.avgCost;
-    const previous = h.previousClose || h.avgCost;
-    return sum + (current - previous) * h.shares;
-  }, 0);
+/**
+ * Calculate Daily P/L using Finnhub quote data
+ * Formula: Σ((currentPrice - previousClose) × shares)
+ * Returns null if any holding is missing valid previousClose data
+ */
+export interface DailyPLResult {
+  dailyPL: number | null;
+  dailyBaseValue: number | null;
+  hasDailyBaseline: boolean;
+}
+
+export const calculateDailyPL = (holdings: Holding[]): DailyPLResult => {
+  if (holdings.length === 0) {
+    return { dailyPL: 0, dailyBaseValue: 0, hasDailyBaseline: true };
+  }
+
+  let dailyPL = 0;
+  let dailyBaseValue = 0;
+  let hasValidBaseline = true;
+
+  for (const h of holdings) {
+    const currentPrice = h.currentPrice;
+    const previousClose = h.previousClose;
+
+    // Check if we have valid previous close data (not missing, not 0, not equal to avgCost fallback)
+    const hasValidPrevClose = 
+      previousClose !== undefined && 
+      previousClose !== null && 
+      previousClose > 0 &&
+      currentPrice !== undefined &&
+      currentPrice !== null;
+
+    if (!hasValidPrevClose) {
+      // Mark baseline as invalid - we can't compute accurate Today P/L
+      hasValidBaseline = false;
+      continue;
+    }
+
+    dailyPL += (currentPrice - previousClose) * h.shares;
+    dailyBaseValue += previousClose * h.shares;
+  }
+
+  if (!hasValidBaseline) {
+    return { dailyPL: null, dailyBaseValue: null, hasDailyBaseline: false };
+  }
+
+  return { dailyPL, dailyBaseValue, hasDailyBaseline: true };
 };
 
 /**
@@ -47,10 +88,15 @@ export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetric
   const holdingsValue = calculateHoldingsValue(portfolio.holdings);
   const costBasis = calculateCostBasis(portfolio.holdings);
   const totalValue = portfolio.cash + holdingsValue;
-  const dailyPL = calculateDailyPL(portfolio.holdings);
   
-  const previousHoldingsValue = holdingsValue - dailyPL;
-  const dailyPLPercent = previousHoldingsValue > 0 ? (dailyPL / previousHoldingsValue) * 100 : 0;
+  // Calculate daily P/L with proper baseline validation
+  const dailyResult = calculateDailyPL(portfolio.holdings);
+  const { dailyPL, dailyBaseValue, hasDailyBaseline } = dailyResult;
+  
+  // Calculate daily percentage only if we have a valid baseline
+  const dailyPLPercent = hasDailyBaseline && dailyBaseValue && dailyBaseValue > 0 
+    ? (dailyPL! / dailyBaseValue) * 100 
+    : null;
   
   // Unrealized P/L = current market value - cost basis
   const unrealizedPL = calculateUnrealizedPL(portfolio.holdings);
@@ -86,6 +132,8 @@ export const calculatePortfolioMetrics = (portfolio: Portfolio): PortfolioMetric
     costBasis,
     dailyPL,
     dailyPLPercent,
+    dailyBaseValue,
+    hasDailyBaseline,
     allTimePL,
     allTimePLPercent,
     cumulativeReturn,

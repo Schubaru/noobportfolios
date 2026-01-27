@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Trash2, ArrowRightLeft, Clock } from 'lucide-react';
 import Header from '@/components/Header';
@@ -15,6 +15,8 @@ import { fetchMultipleQuotes } from '@/lib/finnhub';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
 
+const REFRESH_INTERVAL_MS = 20000; // 20 seconds - balanced for Finnhub free tier
+
 const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -30,6 +32,10 @@ const PortfolioDetail = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDividendBreakdown, setShowDividendBreakdown] = useState(false);
   const [hasFetchedPrices, setHasFetchedPrices] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isPageVisibleRef = useRef(true);
 
   const loadPortfolioData = useCallback(async (forceRefresh = false) => {
     if (!id) return;
@@ -67,32 +73,36 @@ const PortfolioDetail = () => {
             return {
               ...h,
               currentPrice: quote.price,
-              previousClose: quote.prevClose,
+              previousClose: quote.prevClose, // Finnhub's previous close field
             };
           }
-          // If no quote available, keep existing prices (graceful degradation)
-          return h;
+          // If no quote available, mark as missing data (don't use avgCost fallback for previousClose)
+          return {
+            ...h,
+            currentPrice: h.currentPrice,
+            previousClose: undefined, // Explicitly mark as missing to trigger "—" display
+          };
         });
       } catch (error) {
         console.error('Error fetching quotes, using last known prices:', error);
         hasApiErrors = true;
-        // Fallback: use avg_cost as current price if no price data exists
+        // On error, preserve existing prices but don't fake previousClose
         portfolioWithPrices.holdings = data.holdings.map(h => ({
           ...h,
           currentPrice: h.currentPrice ?? h.avgCost,
-          previousClose: h.previousClose ?? h.avgCost,
+          previousClose: undefined, // Don't fake previous close data
         }));
       }
     }
 
     setPortfolio(portfolioWithPrices);
     setMetrics(calculatePortfolioMetrics(portfolioWithPrices));
+    setLastUpdated(new Date());
     setIsLoading(false);
     setHasFetchedPrices(true);
     
     // Show toast if API had errors
     if (hasApiErrors && forceRefresh) {
-      // Only show on manual refresh, not on initial load
       console.warn('Using last known prices due to market data API issues');
     }
   }, [id, getPortfolio, portfoliosLoading, navigate, hasFetchedPrices]);
@@ -104,15 +114,49 @@ const PortfolioDetail = () => {
     }
   }, [portfoliosLoading, id, hasFetchedPrices, loadPortfolioData]);
 
-  // Refresh prices periodically
+  // Auto-refresh with visibility API - pause when tab is hidden
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (!isRefreshing && portfolio) {
-        handleRefresh();
+    const handleVisibilityChange = () => {
+      isPageVisibleRef.current = !document.hidden;
+      
+      if (document.hidden) {
+        // Clear interval when page is hidden
+        if (refreshIntervalRef.current) {
+          clearInterval(refreshIntervalRef.current);
+          refreshIntervalRef.current = null;
+        }
+      } else {
+        // Resume refresh when page becomes visible
+        startAutoRefresh();
       }
-    }, 60000); // Every 60 seconds
+    };
 
-    return () => clearInterval(interval);
+    const startAutoRefresh = () => {
+      // Clear any existing interval
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+      
+      // Start new interval
+      refreshIntervalRef.current = setInterval(() => {
+        if (isPageVisibleRef.current && !isRefreshing && portfolio) {
+          handleRefresh();
+        }
+      }, REFRESH_INTERVAL_MS);
+    };
+
+    // Initial setup
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    if (portfolio && !document.hidden) {
+      startAutoRefresh();
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
   }, [portfolio, isRefreshing]);
 
   const handleRefresh = async () => {
@@ -190,9 +234,15 @@ const PortfolioDetail = () => {
             </Link>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold">{portfolio.name}</h1>
-              <p className="text-sm text-muted-foreground">
-                Created {new Date(portfolio.createdAt).toLocaleDateString()}
-              </p>
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                <span>Created {new Date(portfolio.createdAt).toLocaleDateString()}</span>
+                {lastUpdated && (
+                  <span className="flex items-center gap-1">
+                    <span className="text-muted-foreground/60">•</span>
+                    <span>Updated {lastUpdated.toLocaleTimeString()}</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           

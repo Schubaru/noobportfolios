@@ -10,7 +10,8 @@ interface PortfolioCardProps {
 }
 
 const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
-  const isPositiveDaily = metrics.dailyPL >= 0;
+  const hasDailyData = metrics.hasDailyBaseline && metrics.dailyPL !== null;
+  const isPositiveDaily = hasDailyData && metrics.dailyPL! >= 0;
   const isPositiveReturn = metrics.unrealizedPL >= 0;
   const hasHoldings = metrics.holdingsValue > 0;
 
@@ -42,8 +43,8 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Daily P/L</p>
-          <div className={`flex items-center gap-1 ${hasHoldings ? (isPositiveDaily ? 'text-success' : 'text-destructive') : 'text-muted-foreground'}`}>
-            {hasHoldings ? (
+          <div className={`flex items-center gap-1 ${hasDailyData && hasHoldings ? (isPositiveDaily ? 'text-success' : 'text-destructive') : 'text-muted-foreground'}`}>
+            {hasDailyData && hasHoldings ? (
               isPositiveDaily ? (
                 <TrendingUp className="w-3.5 h-3.5" />
               ) : (
@@ -51,7 +52,7 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
               )
             ) : null}
             <span className="text-sm font-medium">
-              {hasHoldings ? formatPL(metrics.dailyPL) : '—'}
+              {hasDailyData && hasHoldings ? formatPL(metrics.dailyPL!) : '—'}
             </span>
           </div>
         </div>
