@@ -84,6 +84,10 @@ export const usePortfolios = () => {
         shares: Number(h.shares),
         avgCost: Number(h.avg_cost),
         assetClass: h.asset_class as Holding['assetClass'],
+        // currentPrice and previousClose are NOT set here - they come from live quotes
+        // This ensures hasDailyBaseline is false until quotes are fetched
+        currentPrice: undefined,
+        previousClose: undefined,
       })),
       transactions: transactions.map((t): Transaction => ({
         id: t.id,
