@@ -11,8 +11,9 @@ interface PerformanceSummaryProps {
 
 const PerformanceSummary = ({ metrics, cash, startingCash }: PerformanceSummaryProps) => {
   const isPositiveUnrealized = metrics.unrealizedPL >= 0;
-  const isPositiveDaily = metrics.dailyPL >= 0;
+  const isPositiveDaily = metrics.dailyPL !== null && metrics.dailyPL >= 0;
   const hasHoldings = metrics.holdingsValue > 0;
+  const hasDailyData = metrics.hasDailyBaseline && metrics.dailyPL !== null;
   
   return (
     <div className="glass-card p-6">
@@ -86,22 +87,33 @@ const PerformanceSummary = ({ metrics, cash, startingCash }: PerformanceSummaryP
           </p>
         </div>
 
-        {/* Today's Change */}
+        {/* Today's Change - shows "—" if baseline is unavailable */}
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
-            {isPositiveDaily ? (
+            {hasDailyData && isPositiveDaily ? (
               <TrendingUp className="w-4 h-4 text-muted-foreground" />
-            ) : (
+            ) : hasDailyData ? (
               <TrendingDown className="w-4 h-4 text-muted-foreground" />
+            ) : (
+              <Activity className="w-4 h-4 text-muted-foreground" />
             )}
             <p className="text-xs text-muted-foreground">Today</p>
           </div>
-          <p className={cn(
-            "text-lg font-semibold",
-            isPositiveDaily ? "text-success" : "text-destructive"
-          )}>
-            {isPositiveDaily ? '+' : ''}{formatCurrency(metrics.dailyPL)}
-          </p>
+          {hasDailyData ? (
+            <p className={cn(
+              "text-lg font-semibold",
+              isPositiveDaily ? "text-success" : "text-destructive"
+            )}>
+              {isPositiveDaily ? '+' : ''}{formatCurrency(metrics.dailyPL!)}
+              {metrics.dailyPLPercent !== null && (
+                <span className="text-sm ml-1 opacity-80">
+                  ({formatPercent(metrics.dailyPLPercent)})
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="text-lg font-semibold text-muted-foreground">—</p>
+          )}
         </div>
       </div>
 

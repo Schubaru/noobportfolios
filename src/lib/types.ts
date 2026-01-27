@@ -95,8 +95,10 @@ export interface PortfolioMetrics {
   totalValue: number;
   holdingsValue: number; // Current market value of holdings (excludes cash)
   costBasis: number; // Total amount spent on current holdings
-  dailyPL: number;
-  dailyPLPercent: number;
+  dailyPL: number | null; // null if baseline unavailable
+  dailyPLPercent: number | null;
+  dailyBaseValue: number | null; // Previous close baseline for "Today"
+  hasDailyBaseline: boolean; // Whether we have valid previous close data
   allTimePL: number;
   allTimePLPercent: number;
   cumulativeReturn: number;
