@@ -65,9 +65,11 @@ export const calculateDailyPL = (holdings: Holding[]): DailyPLResult => {
 /**
  * Calculate unrealized P/L from current holdings
  * Formula: Σ((currentPrice - avgCost) × shares)
+ * Returns 0 if no currentPrice is available (fallback to avgCost means no change)
  */
 export const calculateUnrealizedPL = (holdings: Holding[]): number => {
   return holdings.reduce((sum, h) => {
+    // If no live price, assume no unrealized gain/loss yet
     const currentPrice = h.currentPrice ?? h.avgCost;
     const unrealized = (currentPrice - h.avgCost) * h.shares;
     return sum + unrealized;

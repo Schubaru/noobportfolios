@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Briefcase, Sparkles, Loader2, Info } from 'lucide-react';
+import { Briefcase, Sparkles, Loader2, Info, RefreshCw } from 'lucide-react';
 import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
 import PortfolioCard from '@/components/PortfolioCard';
 import CreatePortfolioModal from '@/components/CreatePortfolioModal';
 import { usePortfolios } from '@/hooks/usePortfolios';
+import { usePortfolioQuotes } from '@/hooks/usePortfolioQuotes';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
 import { toast } from 'sonner';
@@ -17,6 +18,12 @@ const Index = () => {
     isInitializing, 
     createPortfolio: createNewPortfolio, 
   } = usePortfolios();
+  const { 
+    getMetrics: getLiveMetrics, 
+    isRefreshing, 
+    lastUpdated,
+    refresh: refreshQuotes 
+  } = usePortfolioQuotes(portfolios);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const handlePortfolioCreated = async (name: string) => {
@@ -29,8 +36,9 @@ const Index = () => {
     setIsCreateModalOpen(false);
   };
 
+  // Use live metrics if available, otherwise calculate from DB data
   const getMetrics = (portfolio: Portfolio): PortfolioMetrics => {
-    return calculatePortfolioMetrics(portfolio);
+    return getLiveMetrics(portfolio.id) || calculatePortfolioMetrics(portfolio);
   };
 
   const totalHoldingsValue = portfolios.reduce((sum, p) => {
@@ -46,15 +54,30 @@ const Index = () => {
       
       <main className="container mx-auto px-4 py-8">
         {/* Hero Section */}
-        <div className="mb-10">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-foreground">
               My portfolios
             </h1>
-            <p className="text-muted-foreground">
-              Practice trading with $10,000 virtual cash per portfolio
-            </p>
+            <div className="flex items-center gap-3 text-muted-foreground">
+              <span>Practice trading with $10,000 virtual cash per portfolio</span>
+              {lastUpdated && (
+                <span className="text-xs">
+                  • Updated {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+            </div>
           </div>
+          {portfolios.length > 0 && (
+            <button
+              onClick={refreshQuotes}
+              disabled={isRefreshing}
+              className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50 self-start md:self-auto"
+              title="Refresh prices"
+            >
+              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          )}
         </div>
 
         {/* Loading / Initializing State */}
