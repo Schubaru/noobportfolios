@@ -33,9 +33,9 @@ const Index = () => {
     return calculatePortfolioMetrics(portfolio);
   };
 
-  const totalValue = portfolios.reduce((sum, p) => {
+  const totalHoldingsValue = portfolios.reduce((sum, p) => {
     const metrics = getMetrics(p);
-    return sum + metrics.totalValue;
+    return sum + metrics.holdingsValue;
   }, 0);
 
   const examplePortfolio = portfolios.find(p => p.isExample);
@@ -75,9 +75,9 @@ const Index = () => {
               <p className="text-2xl font-bold text-foreground">{portfolios.length}</p>
             </div>
             <div className="glass-card p-4">
-              <p className="text-xs text-muted-foreground mb-1">Total Value</p>
+              <p className="text-xs text-muted-foreground mb-1">Total Invested</p>
               <p className="text-2xl font-bold">
-                ${totalValue.toLocaleString('en-US', {
+                ${totalHoldingsValue.toLocaleString('en-US', {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2
                 })}

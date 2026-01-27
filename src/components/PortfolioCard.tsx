@@ -13,8 +13,9 @@ interface PortfolioCardProps {
 const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
   const diversity = calculateDiversityScore(portfolio.holdings);
   const isPositiveDaily = metrics.dailyPL >= 0;
-  const isPositiveTotalReturn = metrics.totalReturnWithDividends >= 0;
+  const isPositiveReturn = metrics.unrealizedPL >= 0;
   const hasDividends = metrics.totalDividends > 0;
+  const hasHoldings = metrics.holdingsValue > 0;
 
   return (
     <Link
@@ -33,7 +34,7 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
             )}
           </div>
           <p className="text-2xl font-bold text-foreground">
-            {formatCurrency(metrics.totalValue)}
+            {formatCurrency(metrics.holdingsValue)}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -56,13 +57,17 @@ const PortfolioCard = ({ portfolio, metrics }: PortfolioCardProps) => {
 
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Total Return</p>
-          <div className={`flex items-center gap-1 ${isPositiveTotalReturn ? 'text-success' : 'text-destructive'}`}>
-            {isPositiveTotalReturn ? (
-              <TrendingUp className="w-3.5 h-3.5" />
-            ) : (
-              <TrendingDown className="w-3.5 h-3.5" />
-            )}
-            <span className="text-sm font-medium">{formatPercent(metrics.totalReturnWithDividendsPercent)}</span>
+          <div className={`flex items-center gap-1 ${hasHoldings ? (isPositiveReturn ? 'text-success' : 'text-destructive') : 'text-muted-foreground'}`}>
+            {hasHoldings ? (
+              isPositiveReturn ? (
+                <TrendingUp className="w-3.5 h-3.5" />
+              ) : (
+                <TrendingDown className="w-3.5 h-3.5" />
+              )
+            ) : null}
+            <span className="text-sm font-medium">
+              {hasHoldings ? formatPercent(metrics.allTimePLPercent) : '—'}
+            </span>
           </div>
         </div>
 
