@@ -1,4 +1,4 @@
-import { TimeRange } from '@/hooks/usePortfolioChart';
+import { TimeRange } from '@/lib/timeRange';
 import { cn } from '@/lib/utils';
 
 interface TimeRangeSelectorProps {

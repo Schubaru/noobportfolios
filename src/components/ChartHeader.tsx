@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 interface ChartHeaderProps {
   value: number;
   change: number;
-  changePercent: number;
+  changePercent: number | null;
   isHovering: boolean;
   hoverDate?: string;
 }
@@ -29,6 +29,9 @@ const ChartHeader = ({
 
   return (
     <div className="mb-4 transition-all duration-150">
+      <p className="text-xs text-muted-foreground tracking-wide uppercase">
+        Invested assets
+      </p>
       <p className="text-3xl md:text-4xl font-bold tracking-tight">
         {formatCurrency(value)}
       </p>
@@ -37,7 +40,7 @@ const ChartHeader = ({
           {sign}{formatCurrency(change)}
         </span>
         <span className={cn('text-sm', changeColor)}>
-          ({formatPercent(changePercent)})
+          ({changePercent === null ? '—%' : formatPercent(changePercent)})
         </span>
         {isHovering && hoverDate && (
           <span className="text-xs text-muted-foreground ml-2">

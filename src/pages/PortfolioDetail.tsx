@@ -12,7 +12,7 @@ import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
 import { usePortfolios } from '@/hooks/usePortfolios';
-import { calculatePortfolioMetrics, calculatePortfolioValue, calculateHoldingsValue } from '@/lib/portfolio';
+import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
@@ -230,10 +230,11 @@ const PortfolioDetail = () => {
 
         {/* Interactive Chart */}
         <div className="glass-card p-6 mb-6">
-          <InteractivePortfolioChart 
-            valueHistory={portfolio.valueHistory} 
-            currentValue={calculateHoldingsValue(portfolio.holdings)}
-            cash={portfolio.cash}
+          <InteractivePortfolioChart
+            portfolioId={portfolio.id}
+            holdingsKey={portfolio.holdings
+              .map((h) => `${h.symbol}:${h.shares}`)
+              .join('|')}
           />
         </div>
 

@@ -1,13 +1,6 @@
-import { useState, useMemo } from 'react';
-import { ValueSnapshot } from '@/lib/types';
-
-export type TimeRange = '1D' | '1W' | '1M' | '3M' | 'YTD' | '1Y' | 'ALL';
-
-interface UsePortfolioChartProps {
-  valueHistory: ValueSnapshot[];
-  currentValue: number; // Current holdings value (excluding cash)
-  cash: number; // Current cash balance to subtract from historical values
-}
+import { useEffect, useMemo, useState } from 'react';
+import { buildInvestedValueSeries } from '@/lib/investedSeries';
+import { TimeRange } from '@/lib/timeRange';
 
 interface ChartDataPoint {
   timestamp: number;
@@ -19,9 +12,8 @@ interface ChartDataPoint {
 interface UsePortfolioChartReturn {
   chartData: ChartDataPoint[];
   startValue: number;
-  currentValue: number;
   absoluteChange: number;
-  percentChange: number;
+  percentChange: number | null;
   isPositive: boolean;
   isNeutral: boolean;
   hoverIndex: number | null;
@@ -30,32 +22,11 @@ interface UsePortfolioChartReturn {
   setTimeRange: (range: TimeRange) => void;
   displayValue: number;
   displayChange: number;
-  displayChangePercent: number;
+  displayChangePercent: number | null;
   hasLimitedData: boolean;
+  isLoading: boolean;
+  hasHistory: boolean;
 }
-
-const getTimeRangeStart = (range: TimeRange): number => {
-  const now = Date.now();
-  const day = 24 * 60 * 60 * 1000;
-  
-  switch (range) {
-    case '1D':
-      return now - day;
-    case '1W':
-      return now - 7 * day;
-    case '1M':
-      return now - 30 * day;
-    case '3M':
-      return now - 90 * day;
-    case 'YTD':
-      return new Date(new Date().getFullYear(), 0, 1).getTime();
-    case '1Y':
-      return now - 365 * day;
-    case 'ALL':
-    default:
-      return 0;
-  }
-};
 
 const formatDateForRange = (timestamp: number, range: TimeRange): string => {
   const date = new Date(timestamp);
@@ -71,75 +42,75 @@ const formatDateForRange = (timestamp: number, range: TimeRange): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-export const usePortfolioChart = ({
-  valueHistory,
-  currentValue,
-  cash,
-}: UsePortfolioChartProps): UsePortfolioChartReturn => {
+interface UsePortfolioChartProps {
+  portfolioId: string;
+  /** Any string that changes when holdings change (e.g., symbols+shares) */
+  holdingsKey?: string;
+}
+
+export const usePortfolioChart = ({ portfolioId, holdingsKey }: UsePortfolioChartProps): UsePortfolioChartReturn => {
   const [timeRange, setTimeRange] = useState<TimeRange>('1W');
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasHistory, setHasHistory] = useState(true);
+  const [series, setSeries] = useState<Array<{ timestamp: number; investedValue: number }>>([]);
 
-  const chartData = useMemo(() => {
-    const rangeStart = getTimeRangeStart(timeRange);
-    
-    // Filter valueHistory based on time range
-    let filtered = valueHistory.filter(v => v.timestamp >= rangeStart);
-    
-    // If no data in range, use all data
-    if (filtered.length === 0 && valueHistory.length > 0) {
-      filtered = [...valueHistory];
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      setIsLoading(true);
+      setHoverIndex(null);
+      try {
+        const { series, hasHistory } = await buildInvestedValueSeries(portfolioId, timeRange);
+        if (cancelled) return;
+        setSeries(series);
+        setHasHistory(hasHistory);
+      } catch (e) {
+        // buildInvestedValueSeries already returns a safe fallback; this is just extra guard.
+        console.error('[usePortfolioChart] failed to build series:', e);
+        if (cancelled) return;
+        setSeries([{ timestamp: Date.now(), investedValue: 0 }]);
+        setHasHistory(false);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
-    
-    // Sort by timestamp
-    filtered.sort((a, b) => a.timestamp - b.timestamp);
-    
-    // HOLDINGS-ONLY MODE: User wants to see only invested assets, not cash
-    // valueHistory stores TOTAL portfolio value (cash + holdings)
-    // We subtract cash to approximate historical holdings value
-    // This assumes cash balance hasn't changed significantly (reasonable for most cases)
-    
-    // For chart line: convert total values to holdings-only by subtracting cash
-    const points: ChartDataPoint[] = filtered.map((v, idx) => ({
-      timestamp: v.timestamp,
-      value: Math.max(0, v.value - cash), // Holdings = Total - Cash
-      date: formatDateForRange(v.timestamp, timeRange),
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [portfolioId, timeRange, holdingsKey]);
+
+  const chartData = useMemo((): ChartDataPoint[] => {
+    return (series || []).map((p, idx) => ({
+      timestamp: p.timestamp,
+      value: p.investedValue,
+      date: formatDateForRange(p.timestamp, timeRange),
       index: idx,
     }));
-    
-    // Add current HOLDINGS value as the latest point (NOT including cash)
-    const lastRecorded = points[points.length - 1];
-    if (!lastRecorded || Math.abs(lastRecorded.value - currentValue) > 0.01) {
-      points.push({
-        timestamp: Date.now(),
-        value: currentValue, // currentValue is already holdings-only
-        date: formatDateForRange(Date.now(), timeRange),
-        index: points.length,
-      });
-    }
-    
-    return points;
-  }, [valueHistory, currentValue, cash, timeRange]);
+  }, [series, timeRange]);
 
-  // Calculate changes using HOLDINGS-ONLY values from chart data
-  const startValue = chartData.length > 0 ? chartData[0].value : currentValue;
-  const endValue = chartData.length > 0 ? chartData[chartData.length - 1].value : currentValue;
+  // Calculate changes ONLY from the series (single source of truth)
+  const startValue = chartData.length > 0 ? chartData[0].value : 0;
+  const endValue = chartData.length > 0 ? chartData[chartData.length - 1].value : 0;
   const absoluteChange = endValue - startValue;
-  // If no holdings at start (startValue = 0), show "—" for percent to avoid divide-by-zero
-  const percentChange = startValue > 0 ? (absoluteChange / startValue) * 100 : 0;
+  const percentChange = hasHistory && startValue > 0 ? (absoluteChange / startValue) * 100 : null;
   const isPositive = absoluteChange > 0;
   const isNeutral = Math.abs(absoluteChange) < 0.01;
 
   // Debug logging (dev only)
+  // eslint-disable-next-line no-undef
   if (process.env.NODE_ENV === 'development') {
     console.log('[usePortfolioChart] Debug:', {
       startValue,
       endValue,
       absoluteChange,
-      percentChange: percentChange.toFixed(2) + '%',
-      currentHoldingsValue: currentValue,
-      cash,
+      percentChange: percentChange === null ? '—' : percentChange.toFixed(2) + '%',
       chartDataPoints: chartData.length,
       mode: 'holdings_only',
+      hasHistory,
     });
   }
 
@@ -150,8 +121,8 @@ export const usePortfolioChart = ({
       // Show holdings value at that point in time
       return chartData[hoverIndex].value;
     }
-    return currentValue; // Current holdings value
-  }, [hoverIndex, chartData, currentValue]);
+    return endValue; // End-of-range value
+  }, [hoverIndex, chartData, endValue]);
 
   const displayChange = useMemo(() => {
     if (hoverIndex !== null && chartData[hoverIndex]) {
@@ -161,17 +132,16 @@ export const usePortfolioChart = ({
   }, [hoverIndex, chartData, startValue, absoluteChange]);
 
   const displayChangePercent = useMemo(() => {
-    // Avoid divide-by-zero; show 0 if no starting value
-    if (startValue <= 0) return 0;
+    // Avoid divide-by-zero AND avoid fake percent when history is unavailable.
+    if (!hasHistory || startValue <= 0) return null;
     return (displayChange / startValue) * 100;
-  }, [displayChange, startValue]);
+  }, [displayChange, startValue, hasHistory]);
 
   const hasLimitedData = chartData.length <= 2;
 
   return {
     chartData,
     startValue,
-    currentValue,
     absoluteChange,
     percentChange,
     isPositive,
@@ -184,5 +154,8 @@ export const usePortfolioChart = ({
     displayChange,
     displayChangePercent,
     hasLimitedData,
+    isLoading,
+    hasHistory,
   };
 };
+

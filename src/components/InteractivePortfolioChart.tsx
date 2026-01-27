@@ -8,23 +8,20 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
-import { usePortfolioChart, TimeRange } from '@/hooks/usePortfolioChart';
-import { ValueSnapshot } from '@/lib/types';
+import { usePortfolioChart } from '@/hooks/usePortfolioChart';
 import { formatCurrency } from '@/lib/portfolio';
 import ChartHeader from './ChartHeader';
 import TimeRangeSelector from './TimeRangeSelector';
 
 interface InteractivePortfolioChartProps {
-  valueHistory: ValueSnapshot[];
-  currentValue: number; // Current holdings value (excluding cash)
-  cash: number; // Current cash balance (for adjusting historical values)
+  portfolioId: string;
+  holdingsKey?: string;
   className?: string;
 }
 
 const InteractivePortfolioChart = ({
-  valueHistory,
-  currentValue,
-  cash,
+  portfolioId,
+  holdingsKey,
   className = '',
 }: InteractivePortfolioChartProps) => {
   const chartRef = useRef<HTMLDivElement>(null);
@@ -42,13 +39,14 @@ const InteractivePortfolioChart = ({
     displayChange,
     displayChangePercent,
     hasLimitedData,
-  } = usePortfolioChart({ valueHistory, currentValue, cash });
+    isLoading,
+  } = usePortfolioChart({ portfolioId, holdingsKey });
 
   // Calculate Y-axis domain with padding
   const values = chartData.map((d) => d.value);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const padding = (maxValue - minValue) * 0.15 || maxValue * 0.05;
+  const minValue = values.length ? Math.min(...values) : 0;
+  const maxValue = values.length ? Math.max(...values) : 0;
+  const padding = values.length ? ((maxValue - minValue) * 0.15 || maxValue * 0.05 || 1) : 1;
 
   // Determine chart colors based on performance
   const lineColor = isNeutral
@@ -82,14 +80,14 @@ const InteractivePortfolioChart = ({
     if (active && payload && payload.length) {
       const dataPoint = payload[0].payload;
       const changeFromStart = dataPoint.value - startValue;
-      const changePercent = startValue > 0 ? (changeFromStart / startValue) * 100 : 0;
+      const changePercent = startValue > 0 ? (changeFromStart / startValue) * 100 : null;
       const isUp = changeFromStart >= 0;
 
       return (
         <div className="glass-card px-3 py-2 text-sm border border-border/50">
           <p className="font-semibold">{formatCurrency(dataPoint.value)}</p>
           <p className={`text-xs ${isUp ? 'text-success' : 'text-destructive'}`}>
-            {isUp ? '+' : ''}{formatCurrency(changeFromStart)} ({isUp ? '+' : ''}{changePercent.toFixed(2)}%)
+            {isUp ? '+' : ''}{formatCurrency(changeFromStart)} ({changePercent === null ? '—%' : `${isUp ? '+' : ''}${changePercent.toFixed(2)}%`})
           </p>
           <p className="text-xs text-muted-foreground mt-1">{dataPoint.date}</p>
         </div>
@@ -139,6 +137,13 @@ const InteractivePortfolioChart = ({
 
       {/* Chart Container */}
       <div ref={chartRef} className="w-full h-[220px] -mx-2">
+        {isLoading ? (
+          <div className="w-full h-full rounded-xl bg-muted animate-pulse" />
+        ) : chartData.length === 0 ? (
+          <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+            No chart data available.
+          </div>
+        ) : (
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
             data={chartData}
@@ -203,6 +208,7 @@ const InteractivePortfolioChart = ({
             />
           </AreaChart>
         </ResponsiveContainer>
+        )}
       </div>
 
       {/* Time Range Selector */}
