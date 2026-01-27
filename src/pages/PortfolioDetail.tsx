@@ -6,7 +6,6 @@ import Disclaimer from '@/components/Disclaimer';
 import PerformanceSummary from '@/components/PerformanceSummary';
 import HoldingsTable from '@/components/HoldingsTable';
 import AllocationChart from '@/components/AllocationChart';
-import DiversityScore from '@/components/DiversityScore';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
@@ -246,9 +245,8 @@ const PortfolioDetail = () => {
             />
           </div>
           
-          <div className="space-y-6">
+          <div>
             <AllocationChart holdings={portfolio.holdings} />
-            <DiversityScore holdings={portfolio.holdings} />
           </div>
         </div>
 
