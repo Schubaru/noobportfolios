@@ -129,6 +129,37 @@
   }
 }
 
+@keyframes successEnter {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes successGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 8px hsl(var(--primary) / 0.2);
+  }
+}
+
+.animate-success-enter {
+  animation: successEnter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-success-glow {
+  animation: successGlow 0.8s ease-in-out 0.4s;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

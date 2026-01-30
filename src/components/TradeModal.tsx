@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle } from 'lucide-react';
+import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { formatShares } from '@/lib/portfolio';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { supabase } from '@/integrations/supabase/client';
 import { Portfolio, QuoteData, Holding, AssetClass } from '@/lib/types';
@@ -16,6 +18,70 @@ interface TradeModalProps {
 type TradeType = 'buy' | 'sell';
 type TradeStep = 'search' | 'details' | 'confirm';
 type InputMode = 'shares' | 'dollars';
+type TradeStatus = 'idle' | 'executing' | 'success' | 'error';
+
+// Hook to detect reduced motion preference
+function useReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
+    
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+  
+  return prefersReducedMotion;
+}
+
+// Success overlay component with animation
+function TradeSuccessOverlay({
+  tradeType,
+  symbol,
+  shares,
+  onComplete
+}: {
+  tradeType: 'buy' | 'sell';
+  symbol: string;
+  shares: number;
+  onComplete: () => void;
+}) {
+  const prefersReducedMotion = useReducedMotion();
+  
+  useEffect(() => {
+    const timer = setTimeout(onComplete, prefersReducedMotion ? 600 : 1200);
+    return () => clearTimeout(timer);
+  }, [onComplete, prefersReducedMotion]);
+  
+  return (
+    <div 
+      className="absolute inset-0 flex flex-col items-center justify-center bg-card/95 backdrop-blur-sm z-20"
+      role="status"
+      aria-live="polite"
+    >
+      <div className={cn(
+        "flex flex-col items-center",
+        !prefersReducedMotion && "animate-success-enter"
+      )}>
+        {/* Checkmark with glow */}
+        <div className={cn(
+          "w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center",
+          !prefersReducedMotion && "animate-success-glow"
+        )}>
+          <Check className="w-8 h-8 text-primary" />
+        </div>
+        
+        {/* Text */}
+        <p className="text-lg font-semibold mt-4 text-foreground">Order Executed</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          {tradeType === 'buy' ? 'Bought' : 'Sold'} {formatShares(shares)} shares of {symbol}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // Known ETF symbols that may be misclassified by Finnhub
 const KNOWN_ETF_SYMBOLS = new Set(['JEPI', 'JEPQ', 'SCHD', 'VYM', 'SPHD', 'DVY', 'HDV', 'DIVO', 'QYLD', 'XYLD', 'VOO', 'VTI', 'QQQ', 'SPY', 'IVV', 'VIG', 'VUG', 'VTV', 'VXUS', 'VEA', 'VWO', 'BND', 'AGG', 'TLT', 'IEF', 'LQD', 'HYG', 'VCIT', 'VCSH', 'BSV', 'VNQ', 'VNQI', 'SCHH', 'IYR', 'XLRE', 'RWR', 'VHT', 'XLV', 'XLF', 'XLE', 'XLK', 'XLI', 'XLP', 'XLY', 'XLB', 'XLU', 'ARKK', 'ARKW', 'ARKG', 'ARKF']);
@@ -775,6 +841,7 @@ const TradeModal = ({
   const [dollarAmount, setDollarAmount] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [tradeStatus, setTradeStatus] = useState<TradeStatus>('idle');
 
   // Quote refresh interval
   const quoteRefreshRef = useRef<NodeJS.Timeout | null>(null);
@@ -802,6 +869,7 @@ const TradeModal = ({
     setDollarAmount('');
     setError('');
     setIsLoading(false);
+    setTradeStatus('idle');
     setLoadingQuote(false);
     setLoadingFundamentals(false);
     setLoadingProfile(false);
@@ -1076,16 +1144,23 @@ const TradeModal = ({
       });
       if (valueError) throw valueError;
 
-      // Success!
+      // Success! Show animation instead of immediately closing
       setIsLoading(false);
-      onTradeComplete();
-      onClose();
+      setTradeStatus('success');
     } catch (error) {
       console.error('Trade error:', error);
       setError('Failed to execute trade. Please try again.');
       setIsLoading(false);
     }
   };
+  
+  // Handle success animation completion
+  const handleSuccessComplete = useCallback(() => {
+    setTradeStatus('idle');
+    onTradeComplete();
+    onClose();
+  }, [onTradeComplete, onClose]);
+  
   const handleSetMaxShares = () => {
     if (inputMode === 'shares') {
       setShares(String(tradeType === 'buy' ? maxBuyShares : maxSellShares));
@@ -1104,6 +1179,16 @@ const TradeModal = ({
       <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onClose} />
       
       <div className="relative w-full max-w-lg glass-card slide-up overflow-hidden max-h-[90vh] overflow-y-auto">
+        {/* Success Overlay */}
+        {tradeStatus === 'success' && (
+          <TradeSuccessOverlay
+            tradeType={tradeType}
+            symbol={displaySymbol}
+            shares={effectiveShares}
+            onComplete={handleSuccessComplete}
+          />
+        )}
+        
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
           <h2 className="text-lg font-bold">
