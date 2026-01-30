@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle, Check, ChevronLeft } from 'lucide-react';
-import { highlightMatch } from '@/lib/searchAssets';
+import { highlightMatch, hybridSearch, SearchAssetResult } from '@/lib/searchAssets';
 import { cn } from '@/lib/utils';
 import { formatShares } from '@/lib/portfolio';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { supabase } from '@/integrations/supabase/client';
 import { Portfolio, QuoteData, Holding, AssetClass } from '@/lib/types';
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
-import { fetchQuote, fetchFundamentals, fetchProfile, searchSymbolsApi, formatLargeNumber, formatVolume, formatMetricPercent, formatRatio, formatMetricCurrency, FinnhubQuote, FinnhubFundamentals, FinnhubProfile, FinnhubSearchResult } from '@/lib/finnhub';
+import { fetchQuote, fetchFundamentals, fetchProfile, formatLargeNumber, formatVolume, formatMetricPercent, formatRatio, formatMetricCurrency, FinnhubQuote, FinnhubFundamentals, FinnhubProfile } from '@/lib/finnhub';
 import { Skeleton } from '@/components/ui/skeleton';
 interface TradeModalProps {
   isOpen: boolean;
@@ -825,7 +825,7 @@ const TradeModal = ({
   const [tradeType, setTradeType] = useState<TradeType>('buy');
   const [inputMode, setInputMode] = useState<InputMode>('shares');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<FinnhubSearchResult[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchAssetResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
   // Market data state
@@ -939,37 +939,59 @@ const TradeModal = ({
     };
   }, [step, refreshQuote]);
 
-  // Search with debounce - use real Finnhub API only
+  // Search with debounce - hybrid local + API for better results
   useEffect(() => {
-    const searchTickers = async () => {
+    const abortController = new AbortController();
+    
+    const performSearch = async () => {
       if (searchQuery.length < 1) {
         setSearchResults([]);
+        setIsSearching(false);
         return;
       }
+      
       setIsSearching(true);
+      
       try {
-        const apiResult = await searchSymbolsApi(searchQuery);
-        if (apiResult.data && apiResult.data.length > 0) {
-          // Ensure assetClass is properly set from API response
-          setSearchResults(apiResult.data.map(r => ({
-            ...r,
-            assetClass: r.assetClass || detectAssetClass(r.type, r.symbol)
-          })));
-        } else {
-          // No results from API - show empty state
+        const { results, isRateLimited } = await hybridSearch(
+          searchQuery,
+          portfolio.holdings,
+          {
+            includeApi: searchQuery.length >= 2, // API only for 2+ chars
+            limit: 20, // Allow more results for better coverage
+            abortSignal: abortController.signal,
+          }
+        );
+        
+        if (!abortController.signal.aborted) {
+          setSearchResults(results);
+          
+          // Log if rate limited for debugging
+          if (isRateLimited && results.length === 0) {
+            console.warn('Search rate limited, showing local results only');
+          }
+        }
+      } catch (err) {
+        if (!abortController.signal.aborted) {
+          console.error('Search error:', err);
           setSearchResults([]);
         }
-      } catch {
-        // API error - show empty state
-        setSearchResults([]);
-        console.error('Search API error');
       } finally {
-        setIsSearching(false);
+        if (!abortController.signal.aborted) {
+          setIsSearching(false);
+        }
       }
     };
-    const debounce = setTimeout(searchTickers, 300);
-    return () => clearTimeout(debounce);
-  }, [searchQuery]);
+    
+    // Debounce: 100ms for local-only, 350ms when API involved
+    const debounceMs = searchQuery.length < 2 ? 100 : 350;
+    const debounce = setTimeout(performSearch, debounceMs);
+    
+    return () => {
+      clearTimeout(debounce);
+      abortController.abort();
+    };
+  }, [searchQuery, portfolio.holdings]);
   const handleSelectSymbol = async (symbol: string) => {
     setIsLoading(true);
     setError('');
@@ -1265,25 +1287,33 @@ const TradeModal = ({
               {/* Search Results */}
               {searchResults.length > 0 && <div ref={resultsContainerRef} className="space-y-1 max-h-[300px] overflow-y-auto">
                   {searchResults.map(result => <button key={result.symbol} onClick={() => handleSelectSymbol(result.symbol)} className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left">
-                      <div>
-                        <p className="font-semibold text-primary">
-                          {highlightMatch(result.symbol, searchQuery).map((segment, i) => (
-                            segment.highlighted ? (
-                              <span key={i} className="bg-primary/20 rounded">{segment.text}</span>
-                            ) : (
-                              <span key={i}>{segment.text}</span>
-                            )
-                          ))}
-                        </p>
-                        <p className="text-sm text-muted-foreground truncate max-w-[200px]">
-                          {highlightMatch(result.name, searchQuery).map((segment, i) => (
-                            segment.highlighted ? (
-                              <span key={i} className="text-foreground font-medium">{segment.text}</span>
-                            ) : (
-                              <span key={i}>{segment.text}</span>
-                            )
-                          ))}
-                        </p>
+                      <div className="flex items-center gap-2">
+                        {/* OWNED badge for holdings */}
+                        {result.source === 'holding' && (
+                          <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] font-medium">
+                            OWNED
+                          </span>
+                        )}
+                        <div>
+                          <p className="font-semibold text-primary">
+                            {highlightMatch(result.symbol, searchQuery).map((segment, i) => (
+                              segment.highlighted ? (
+                                <span key={i} className="bg-primary/20 rounded">{segment.text}</span>
+                              ) : (
+                                <span key={i}>{segment.text}</span>
+                              )
+                            ))}
+                          </p>
+                          <p className="text-sm text-muted-foreground truncate max-w-[200px]">
+                            {highlightMatch(result.name, searchQuery).map((segment, i) => (
+                              segment.highlighted ? (
+                                <span key={i} className="text-foreground font-medium">{segment.text}</span>
+                              ) : (
+                                <span key={i}>{segment.text}</span>
+                              )
+                            ))}
+                          </p>
+                        </div>
                       </div>
                       <span className="px-2 py-1 rounded-md bg-muted text-xs">
                         {result.type}

@@ -160,7 +160,7 @@ Deno.serve(async (req) => {
         const upperType = (item.type || '').toUpperCase();
         return allowedTypes.some(allowed => upperType.includes(allowed));
       })
-      .slice(0, 15) // Increased limit for better results
+      .slice(0, 25) // Increased limit for better client-side filtering
       .map((item: { symbol: string; description: string; type: string }) => {
         const { type, assetClass } = getAssetType(item.type, item.symbol);
         return {
