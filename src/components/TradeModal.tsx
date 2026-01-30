@@ -1287,15 +1287,10 @@ const TradeModal = ({
               {/* Search Results */}
               {searchResults.length > 0 && <div ref={resultsContainerRef} className="space-y-1 max-h-[300px] overflow-y-auto">
                   {searchResults.map(result => <button key={result.symbol} onClick={() => handleSelectSymbol(result.symbol)} className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left">
-                      <div className="flex items-center gap-3">
-                        {/* OWNED badge for holdings */}
-                        {result.source === 'holding' && (
-                          <span className="px-2 py-1 rounded bg-primary/20 text-primary text-[10px] font-medium uppercase tracking-wide">
-                            Owned
-                          </span>
-                        )}
-                        <div>
-                          <p className="font-semibold text-primary">
+                      <div>
+                        {/* Ticker row with OWNED badge inline to the right */}
+                        <p className="font-semibold text-primary flex items-center gap-2">
+                          <span>
                             {highlightMatch(result.symbol, searchQuery).map((segment, i) => (
                               segment.highlighted ? (
                                 <span key={i} className="bg-primary/20 rounded">{segment.text}</span>
@@ -1303,17 +1298,23 @@ const TradeModal = ({
                                 <span key={i}>{segment.text}</span>
                               )
                             ))}
-                          </p>
-                          <p className="text-sm text-muted-foreground truncate max-w-[200px]">
-                            {highlightMatch(result.name, searchQuery).map((segment, i) => (
-                              segment.highlighted ? (
-                                <span key={i} className="text-foreground font-medium">{segment.text}</span>
-                              ) : (
-                                <span key={i}>{segment.text}</span>
-                              )
-                            ))}
-                          </p>
-                        </div>
+                          </span>
+                          {result.source === 'holding' && (
+                            <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] font-medium uppercase tracking-wide">
+                              Owned
+                            </span>
+                          )}
+                        </p>
+                        {/* Asset name on its own line */}
+                        <p className="text-sm text-muted-foreground truncate max-w-[200px]">
+                          {highlightMatch(result.name, searchQuery).map((segment, i) => (
+                            segment.highlighted ? (
+                              <span key={i} className="text-foreground font-medium">{segment.text}</span>
+                            ) : (
+                              <span key={i}>{segment.text}</span>
+                            )
+                          ))}
+                        </p>
                       </div>
                       <span className="px-2 py-1 rounded-md bg-muted text-xs">
                         {result.type}
