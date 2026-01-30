@@ -1,173 +1,171 @@
 
-# Fractional Shares Display Rounding
+# Add Back Button with Preserved Search Context
 
-## Summary
+## Current Behavior
+The Trade modal transitions from **Search** → **Details** when a user selects an asset. There's already a "Back" button at the bottom of the Details view, but it doesn't preserve the scroll position of the search results when returning to search.
 
-Round fractional share values to 2 decimal places for display only (not for calculations), ensuring clean, readable UI while preserving full precision in trading math and database storage.
+**Good news:** The current implementation already preserves `searchQuery` and `searchResults` when going back - they are not cleared by the existing Back button. The search state is retained.
 
-## Scope & Requirements
+## What's Missing
 
-**What we're changing:**
-- Display formatting only - how shares appear to users
-- Round to nearest hundredth (2 decimals) for readability
-- Trim trailing zeros when appropriate (10.00 becomes 10, 10.10 becomes 10.1)
+1. **Header-level Back Button**: Users expect a back control in the modal header (top-left), not just at the bottom of the form
+2. **Scroll Position Restoration**: When returning to search, the results list should scroll back to where the user was
 
-**What stays unchanged:**
-- All trading calculations use full precision internally
-- Database stores full precision values
-- Order totals, cost basis, cash calculations remain exact
-- No "Est." or "Approx." labels needed (the rounding is purely cosmetic)
+## Minimal Changes Required
 
-## Identified UI Locations
+### 1. Add a "Back" button to the header (visible only in details step)
 
-| Location | File | Current Display | Action |
-|----------|------|-----------------|--------|
-| Holdings table "Shares" column | `HoldingsTable.tsx:61` | `{holding.shares}` (raw) | Apply formatter |
-| Trade modal "You own X shares" | `TradeModal.tsx:1107` | `{existingHolding.shares.toFixed(4)}` | Apply formatter |
-| Trade modal "Max: X shares" label | `TradeModal.tsx:1246` | `{maxBuyShares}` / `{maxSellShares}` | Apply formatter |
-| Trade modal dollar preview | `TradeModal.tsx:1281` | `{effectiveShares.toFixed(4)}` | Apply formatter |
-| Trade modal order summary | `TradeModal.tsx:1297` | `{effectiveShares.toFixed(4)}` | Apply formatter |
-| Asset detail modal "Shares" | `AssetDetailModal.tsx:128` | `{holding.shares}` (raw) | Apply formatter |
-| Recent transactions list | `PortfolioDetail.tsx:327` | `{tx.shares}` (raw) | Apply formatter |
+Add a chevron-left icon button in the modal header that appears when `step === 'details'`:
 
-## Implementation
-
-### 1. Create formatShares utility
-
-Add to `src/lib/portfolio.ts`:
-
-```typescript
-/**
- * Format shares for display - rounds to 2 decimals for readability
- * while preserving negative sign and trimming unnecessary trailing zeros.
- * 
- * Examples:
- * - 10.123456 -> "10.12"
- * - 10.00 -> "10"
- * - 10.10 -> "10.1"
- * - 0.5 -> "0.5"
- * - null/undefined/NaN -> "0"
- */
-export const formatShares = (value: number | string | null | undefined): string => {
-  if (value === null || value === undefined) return '0';
-  
-  const num = typeof value === 'string' ? parseFloat(value) : value;
-  
-  if (isNaN(num)) return '0';
-  
-  // Round to 2 decimals, then convert to number to trim trailing zeros
-  const rounded = Math.round(num * 100) / 100;
-  
-  // Use toLocaleString to format with proper thousands separators
-  // and automatic trailing zero trimming
-  return rounded.toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-};
+```
+┌──────────────────────────────────────────────┐
+│  ← Back      Trade                        ✕  │
+├──────────────────────────────────────────────┤
+│  [Asset details view...]                     │
+└──────────────────────────────────────────────┘
 ```
 
-### 2. Update UI components
+- Icon: `ChevronLeft` from lucide-react (already imported pattern in the app)
+- Styling: Matches existing ghost button pattern (`p-2 rounded-lg hover:bg-muted`)
+- Accessibility: `aria-label="Back to search"`
 
-**HoldingsTable.tsx** (line 61):
-```tsx
-// Before:
-<td className="p-4 text-right font-medium">{holding.shares}</td>
+### 2. Preserve scroll position
 
-// After:
-<td className="p-4 text-right font-medium">{formatShares(holding.shares)}</td>
+- Before transitioning to details: Save `resultsContainerRef.current.scrollTop` to a ref
+- When back is clicked: Restore scroll position after step changes to 'search'
+
+### 3. Refactor the back logic into a reusable function
+
+Extract the back click handler into a `handleBackToSearch` function that:
+- Clears only asset-specific data (quote, fundamentals, profile, trade inputs)
+- Does NOT clear searchQuery or searchResults (already works this way)
+- Restores scroll position
+- Sets step to 'search'
+
+## State Flow
+
+```
+USER FLOW:
+┌─────────────┐   select asset   ┌─────────────┐
+│   SEARCH    │ ───────────────▶ │   DETAILS   │
+│  (query,    │                  │  (asset     │
+│   results,  │ ◀─────────────── │   data,     │
+│   scroll)   │   click "Back"   │   trade)    │
+└─────────────┘   PRESERVE:      └─────────────┘
+                  - query
+                  - results
+                  - scroll position
+                  
+                  RESET:
+                  - quote/fundamentals/profile
+                  - shares/dollarAmount
+                  - error
 ```
 
-**TradeModal.tsx** - 5 locations:
-
-1. Line 1107 "You own X shares":
-```tsx
-// Before:
-You own {existingHolding.shares.toFixed(4)} shares
-
-// After:
-You own {formatShares(existingHolding.shares)} shares
-```
-
-2. Line 1246 "Max shares" label:
-```tsx
-// Before:
-Max: {tradeType === 'buy' ? maxBuyShares : maxSellShares} shares
-
-// After:
-Max: {formatShares(tradeType === 'buy' ? maxBuyShares : maxSellShares)} shares
-```
-
-3. Line 1281 dollar input preview:
-```tsx
-// Before:
- {effectiveShares.toFixed(4)} shares
-
-// After:
- {formatShares(effectiveShares)} shares
-```
-
-4. Line 1297 order summary:
-```tsx
-// Before:
-{effectiveShares.toFixed(4)} shares x {formatCurrency(currentPrice)}
-
-// After:
-{formatShares(effectiveShares)} shares x {formatCurrency(currentPrice)}
-```
-
-**AssetDetailModal.tsx** (line 128):
-```tsx
-// Before:
-<p className="font-medium">{holding.shares}</p>
-
-// After:
-<p className="font-medium">{formatShares(holding.shares)}</p>
-```
-
-**PortfolioDetail.tsx** (line 327):
-```tsx
-// Before:
-{tx.shares} shares @ {formatCurrency(tx.price)}
-
-// After:
-{formatShares(tx.shares)} shares @ {formatCurrency(tx.price)}
-```
-
-## Technical Notes
-
-### Why no "Est." labels?
-The rounding is purely cosmetic. The actual trade uses full precision internally. Adding "Est." would create visual noise without adding meaningful information since users already understand they're seeing a rounded display value.
-
-### Calculation integrity preserved
-- `effectiveShares` (calculated from dollar input) retains full precision for order total calculation
-- Database writes use raw `effectiveShares`, not the formatted string
-- All P/L, cost basis, and cash calculations use raw numeric values
-
-### Edge cases handled
-- Whole numbers display cleanly: 10.00 becomes "10"
-- Single decimal: 10.10 becomes "10.1"  
-- Very small fractional: 0.01 displays as "0.01"
-- Negative values (if ever applicable): -5.55 displays correctly
-- Invalid input (null/undefined/NaN): returns "0"
-
-## Files Modified
+## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/lib/portfolio.ts` | Add `formatShares()` utility function |
-| `src/components/HoldingsTable.tsx` | Import and use `formatShares()` |
-| `src/components/TradeModal.tsx` | Import and use `formatShares()` in 4 locations |
-| `src/components/AssetDetailModal.tsx` | Import and use `formatShares()` |
-| `src/pages/PortfolioDetail.tsx` | Import and use `formatShares()` |
+| `src/components/TradeModal.tsx` | Add header back button, add scroll position ref, refactor back handler |
 
-## Verification Checklist
+## Implementation Details
 
-After implementation, verify:
-1. Buy $50 of a stock priced at $247.32 - shows fractional shares rounded to 2 decimals in preview
-2. Holdings table displays clean 2-decimal shares (no long decimals)
-3. Asset detail modal shows rounded shares
-4. Transaction history shows rounded shares
-5. Order total still calculates correctly with full precision
-6. Cash balance updates correctly after trade
-7. P/L calculations remain accurate
+### New imports
+Add `ChevronLeft` to the existing lucide-react imports (line 2).
+
+### New ref for scroll position
+```typescript
+const savedScrollPositionRef = useRef<number>(0);
+```
+
+### Save scroll position when selecting asset
+In `handleSelectSymbol`, before transitioning to details:
+```typescript
+if (resultsContainerRef.current) {
+  savedScrollPositionRef.current = resultsContainerRef.current.scrollTop;
+}
+```
+
+### Back handler function
+```typescript
+const handleBackToSearch = useCallback(() => {
+  // Clear asset-specific data
+  setQuote(null);
+  setFundamentals(null);
+  setProfile(null);
+  setSelectedQuote(null);
+  setShares('');
+  setDollarAmount('');
+  setError('');
+  lastFetchedSymbol.current = null;
+  
+  // Clear quote refresh interval
+  if (quoteRefreshRef.current) {
+    clearInterval(quoteRefreshRef.current);
+    quoteRefreshRef.current = null;
+  }
+  
+  // Go back to search
+  setStep('search');
+  
+  // Restore scroll position after render
+  requestAnimationFrame(() => {
+    if (resultsContainerRef.current) {
+      resultsContainerRef.current.scrollTop = savedScrollPositionRef.current;
+    }
+  });
+}, []);
+```
+
+### Updated header (lines 827-840)
+```tsx
+<div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
+  <div className="flex items-center gap-2">
+    {step === 'details' && (
+      <button
+        onClick={handleBackToSearch}
+        className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
+        aria-label="Back to search"
+      >
+        <ChevronLeft className="w-5 h-5" />
+      </button>
+    )}
+    <h2 className="text-lg font-bold">
+      {step === 'search' && 'Search Ticker'}
+      {step === 'details' && 'Trade'}
+      {step === 'confirm' && 'Confirm Order'}
+    </h2>
+  </div>
+  <button
+    onClick={onClose}
+    className="p-2 rounded-lg hover:bg-muted transition-colors"
+  >
+    <X className="w-5 h-5" />
+  </button>
+</div>
+```
+
+### Keep bottom "Back" button but use same handler
+Update the existing bottom Back button (line 1324) to use `handleBackToSearch` instead of inline logic.
+
+## Edge Cases Handled
+
+| Scenario | Behavior |
+|----------|----------|
+| No prior search (direct asset open via `initialSymbol`) | Back returns to empty search state safely (searchQuery and searchResults remain empty) |
+| Search results were empty | Back shows empty search state with suggestions visible |
+| User entered trade values | Trade inputs (shares/dollars) are reset on back - simplest consistent behavior |
+| Keyboard | Back button is focusable; Escape still closes the modal (existing behavior unchanged) |
+
+## What Stays Unchanged
+
+- Modal close (X button) works the same
+- Escape key closes modal
+- Trade calculations and execution
+- Full state reset on modal close
+- Search query preservation (already working)
+- Search results preservation (already working)
+
+## No New Dependencies
+
+Uses only existing packages and patterns from the codebase.
