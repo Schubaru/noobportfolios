@@ -2,21 +2,21 @@ import { TrendingUp, TrendingDown, DollarSign, Wallet, Activity } from 'lucide-r
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { PortfolioMetrics } from '@/lib/types';
 import { cn } from '@/lib/utils';
-
 interface PerformanceSummaryProps {
   metrics: PortfolioMetrics;
   cash: number;
   startingCash: number;
 }
-
-const PerformanceSummary = ({ metrics, cash, startingCash }: PerformanceSummaryProps) => {
+const PerformanceSummary = ({
+  metrics,
+  cash,
+  startingCash
+}: PerformanceSummaryProps) => {
   const isPositiveUnrealized = metrics.unrealizedPL >= 0;
   const isPositiveDaily = metrics.dailyPL !== null && metrics.dailyPL >= 0;
   const hasHoldings = metrics.holdingsValue > 0;
   const hasDailyData = metrics.hasDailyBaseline && metrics.dailyPL !== null;
-  
-  return (
-    <div className="glass-card p-6">
+  return <div className="glass-card p-6">
       {/* Main value display - Holdings value (like Robinhood) */}
       <div className="mb-6">
         <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
@@ -25,32 +25,19 @@ const PerformanceSummary = ({ metrics, cash, startingCash }: PerformanceSummaryP
         <p className="text-4xl md:text-5xl font-bold tracking-tight">
           {formatCurrency(metrics.holdingsValue)}
         </p>
-        {hasHoldings && (
-          <div className="flex items-center gap-3 mt-2">
-            <div className={cn(
-              "flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium",
-              isPositiveUnrealized 
-                ? "bg-success/10 text-success" 
-                : "bg-destructive/10 text-destructive"
-            )}>
-              {isPositiveUnrealized ? (
-                <TrendingUp className="w-4 h-4" />
-              ) : (
-                <TrendingDown className="w-4 h-4" />
-              )}
+        {hasHoldings && <div className="flex items-center gap-3 mt-2">
+            <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium", isPositiveUnrealized ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
+              {isPositiveUnrealized ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
               <span>{isPositiveUnrealized ? '+' : ''}{formatCurrency(metrics.unrealizedPL)}</span>
               <span className="text-xs opacity-80">
                 ({formatPercent(metrics.allTimePLPercent)})
               </span>
             </div>
             <span className="text-xs text-muted-foreground">all-time</span>
-          </div>
-        )}
-        {!hasHoldings && (
-          <p className="text-sm text-muted-foreground mt-2">
+          </div>}
+        {!hasHoldings && <p className="text-sm text-muted-foreground mt-2">
             No investments yet. Start trading to see your portfolio value.
-          </p>
-        )}
+          </p>}
       </div>
 
       {/* Breakdown grid */}
@@ -59,7 +46,7 @@ const PerformanceSummary = ({ metrics, cash, startingCash }: PerformanceSummaryP
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">Cost Basis</p>
+            <p className="text-xs text-muted-foreground">Total invested</p>
           </div>
           <p className="text-lg font-semibold">{formatCurrency(metrics.costBasis)}</p>
         </div>
@@ -79,10 +66,7 @@ const PerformanceSummary = ({ metrics, cash, startingCash }: PerformanceSummaryP
             <DollarSign className="w-4 h-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Gain/Loss</p>
           </div>
-          <p className={cn(
-            "text-lg font-semibold",
-            isPositiveUnrealized ? "text-success" : "text-destructive"
-          )}>
+          <p className={cn("text-lg font-semibold", isPositiveUnrealized ? "text-success" : "text-destructive")}>
             {isPositiveUnrealized ? '+' : ''}{formatCurrency(metrics.unrealizedPL)}
           </p>
         </div>
@@ -90,30 +74,15 @@ const PerformanceSummary = ({ metrics, cash, startingCash }: PerformanceSummaryP
         {/* Today's Change - shows "—" if baseline is unavailable */}
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
-            {hasDailyData && isPositiveDaily ? (
-              <TrendingUp className="w-4 h-4 text-muted-foreground" />
-            ) : hasDailyData ? (
-              <TrendingDown className="w-4 h-4 text-muted-foreground" />
-            ) : (
-              <Activity className="w-4 h-4 text-muted-foreground" />
-            )}
+            {hasDailyData && isPositiveDaily ? <TrendingUp className="w-4 h-4 text-muted-foreground" /> : hasDailyData ? <TrendingDown className="w-4 h-4 text-muted-foreground" /> : <Activity className="w-4 h-4 text-muted-foreground" />}
             <p className="text-xs text-muted-foreground">Today</p>
           </div>
-          {hasDailyData ? (
-            <p className={cn(
-              "text-lg font-semibold",
-              isPositiveDaily ? "text-success" : "text-destructive"
-            )}>
+          {hasDailyData ? <p className={cn("text-lg font-semibold", isPositiveDaily ? "text-success" : "text-destructive")}>
               {isPositiveDaily ? '+' : ''}{formatCurrency(metrics.dailyPL!)}
-              {metrics.dailyPLPercent !== null && (
-                <span className="text-sm ml-1 opacity-80">
+              {metrics.dailyPLPercent !== null && <span className="text-sm ml-1 opacity-80">
                   ({formatPercent(metrics.dailyPLPercent)})
-                </span>
-              )}
-            </p>
-          ) : (
-            <p className="text-lg font-semibold text-muted-foreground">—</p>
-          )}
+                </span>}
+            </p> : <p className="text-lg font-semibold text-muted-foreground">—</p>}
         </div>
       </div>
 
@@ -126,26 +95,18 @@ const PerformanceSummary = ({ metrics, cash, startingCash }: PerformanceSummaryP
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Realized P/L:</span>
-            <span className={cn(
-              "font-medium",
-              metrics.realizedPL >= 0 ? "text-success" : "text-destructive"
-            )}>
+            <span className={cn("font-medium", metrics.realizedPL >= 0 ? "text-success" : "text-destructive")}>
               {metrics.realizedPL >= 0 ? '+' : ''}{formatCurrency(metrics.realizedPL)}
             </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Dividends:</span>
-            <span className={cn(
-              "font-medium",
-              metrics.totalDividends > 0 ? "text-success" : "text-muted-foreground"
-            )}>
+            <span className={cn("font-medium", metrics.totalDividends > 0 ? "text-success" : "text-muted-foreground")}>
               {metrics.totalDividends > 0 ? '+' : ''}{formatCurrency(metrics.totalDividends)}
             </span>
           </div>
         </div>
       </div>
-    </div>
-  );
+    </div>;
 };
-
 export default PerformanceSummary;
