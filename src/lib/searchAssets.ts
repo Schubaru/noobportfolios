@@ -27,100 +27,69 @@ const SEARCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 let rateLimitedUntil = 0;
 
 /**
- * Simple Levenshtein distance for fuzzy matching (optimized for short strings)
+ * Normalize text for search matching
+ * - Lowercase
+ * - Remove punctuation (., &, ', -)
+ * - Collapse multiple spaces to single space
+ * - Trim whitespace
  */
-function levenshteinDistance(a: string, b: string): number {
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-  if (a === b) return 0;
-
-  // Optimization: if lengths differ by more than 2, skip
-  if (Math.abs(a.length - b.length) > 2) return 999;
-
-  const matrix: number[][] = [];
-
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1, // substitution
-          matrix[i][j - 1] + 1,     // insertion
-          matrix[i - 1][j] + 1      // deletion
-        );
-      }
-    }
-  }
-
-  return matrix[b.length][a.length];
+function normalizeForSearch(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[.&'\-]/g, '')     // Remove common punctuation
+    .replace(/\s+/g, ' ')        // Collapse spaces
+    .trim();
 }
 
 /**
- * Calculate match score for ranking
+ * Calculate match score for ranking (strict spelling-based)
  * Higher score = better match
+ * Returns 0 if no substring match found (asset will be filtered out)
  */
 function calculateMatchScore(
   asset: LocalAsset | FinnhubSearchResult,
-  query: string,
+  normalizedQuery: string,
   isHolding: boolean
 ): number {
-  const q = query.toLowerCase();
   const symbol = asset.symbol.toLowerCase();
-  const name = asset.name.toLowerCase();
+  const normalizedName = normalizeForSearch(asset.name);
+  const q = normalizedQuery;
   
   let score = 0;
   
-  // User holdings get highest priority
+  // Ownership bonus (highest priority)
   if (isHolding) score += 10000;
   
-  // Exact symbol match
-  if (symbol === q) score += 5000;
-  
-  // Symbol prefix match
-  else if (symbol.startsWith(q)) score += 3000;
-  
-  // Name prefix match (word-level)
-  else if (name.startsWith(q)) score += 2000;
-  
-  // Name contains query as word start
-  else if (name.split(/\s+/).some(word => word.startsWith(q))) score += 1500;
-  
-  // Name contains query anywhere
-  else if (name.includes(q)) score += 1000;
-  
-  // Symbol contains query
-  else if (symbol.includes(q)) score += 800;
-  
-  // Fuzzy match on symbol (for typos like "appl" -> "aapl")
+  // Tier 1: Ticker exact match
+  if (symbol === q) {
+    score += 5000;
+  }
+  // Tier 2: Ticker starts with query
+  else if (symbol.startsWith(q)) {
+    score += 3000;
+  }
+  // Tier 3: Name starts with query
+  else if (normalizedName.startsWith(q)) {
+    score += 2000;
+  }
+  // Tier 4: Ticker contains query
+  else if (symbol.includes(q)) {
+    score += 1500;
+  }
+  // Tier 5: Name contains query at word boundary
+  else if (normalizedName.split(' ').some(word => word.startsWith(q))) {
+    score += 1000;
+  }
+  // Tier 6: Name contains query anywhere
+  else if (normalizedName.includes(q)) {
+    score += 800;
+  }
+  // NO MATCH - return 0 (will be filtered out)
   else {
-    const symbolDist = levenshteinDistance(q, symbol);
-    if (symbolDist <= 1) score += 500;
-    else if (symbolDist <= 2) score += 200;
-    else {
-      // Fuzzy match on name words
-      const nameWords = name.split(/\s+/);
-      for (const word of nameWords) {
-        const wordDist = levenshteinDistance(q, word);
-        if (wordDist <= 1) {
-          score += 300;
-          break;
-        } else if (wordDist <= 2) {
-          score += 100;
-          break;
-        }
-      }
-    }
+    return 0;
   }
   
-  // Add popularity bonus for local assets (0-100 range, scaled down)
+  // Add popularity bonus for local assets (0-100 range)
   if ('popularity' in asset) {
     score += (asset as LocalAsset).popularity;
   }
@@ -129,7 +98,7 @@ function calculateMatchScore(
 }
 
 /**
- * Search local catalog synchronously
+ * Search local catalog synchronously (strict spelling-based)
  */
 export function searchLocalCatalog(
   query: string,
@@ -138,17 +107,22 @@ export function searchLocalCatalog(
 ): SearchAssetResult[] {
   if (!query || query.length < 1) return [];
   
-  const q = query.toLowerCase().trim();
+  // Normalize query once for all comparisons
+  const normalizedQuery = normalizeForSearch(query);
+  if (!normalizedQuery) return [];
+  
   const holdingSymbols = new Set(holdings.map(h => h.symbol.toUpperCase()));
   const results: SearchAssetResult[] = [];
   const seen = new Set<string>();
   
-  // First, check user holdings
+  // First, check user holdings (STRICT substring match)
   for (const holding of holdings) {
     const symbol = holding.symbol.toUpperCase();
-    const name = holding.name.toLowerCase();
+    const symbolLower = symbol.toLowerCase();
+    const normalizedName = normalizeForSearch(holding.name);
     
-    if (symbol.toLowerCase().includes(q) || name.includes(q)) {
+    // STRICT: Must contain query as substring in ticker or name
+    if (symbolLower.includes(normalizedQuery) || normalizedName.includes(normalizedQuery)) {
       // Try to get additional info from catalog
       const catalogAsset = getCatalogAsset(symbol);
       
@@ -166,12 +140,12 @@ export function searchLocalCatalog(
             symbol,
             name: holding.name,
             normalizedSymbol: symbol.toLowerCase(),
-            normalizedName: name,
+            normalizedName: normalizedName,
             type: 'Stock',
             assetClass: holding.assetClass,
             popularity: 100,
           },
-          q,
+          normalizedQuery,
           true
         ),
       });
@@ -179,13 +153,13 @@ export function searchLocalCatalog(
     }
   }
   
-  // Then search catalog
+  // Then search catalog (STRICT substring match via score > 0)
   for (const asset of ASSET_CATALOG) {
     if (seen.has(asset.symbol)) continue;
     
-    const score = calculateMatchScore(asset, q, holdingSymbols.has(asset.symbol));
+    const score = calculateMatchScore(asset, normalizedQuery, holdingSymbols.has(asset.symbol));
     
-    // Only include if there's some relevance
+    // Only include if there's a real match (score > 0 means substring found)
     if (score > 0) {
       results.push({
         symbol: asset.symbol,
@@ -336,11 +310,17 @@ export async function hybridSearch(
     return { results: localResults, isLoading: false, isRateLimited: false, hasError: false };
   }
   
-  // Merge API results (deduplicated)
+  // Merge API results (deduplicated, with STRICT filtering)
+  const normalizedQuery = normalizeForSearch(q);
   const mergedResults = [...localResults];
   
   for (const apiResult of apiResults) {
     if (seenSymbols.has(apiResult.symbol)) continue;
+    
+    const score = calculateMatchScore(apiResult, normalizedQuery, false);
+    
+    // STRICT: Only include if substring match found
+    if (score === 0) continue;
     
     const assetClass = (apiResult.assetClass as AssetClass) || detectAssetClass(apiResult.type, apiResult.symbol);
     
@@ -350,7 +330,7 @@ export async function hybridSearch(
       type: apiResult.type,
       assetClass,
       source: 'api',
-      matchScore: calculateMatchScore(apiResult, q, false),
+      matchScore: score,
     });
     seenSymbols.add(apiResult.symbol);
   }
