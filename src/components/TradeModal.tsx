@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle, Check } from 'lucide-react';
+import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle, Check, ChevronLeft } from 'lucide-react';
+import { highlightMatch } from '@/lib/searchAssets';
 import { cn } from '@/lib/utils';
 import { formatShares } from '@/lib/portfolio';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -846,6 +847,10 @@ const TradeModal = ({
   // Quote refresh interval
   const quoteRefreshRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchedSymbol = useRef<string | null>(null);
+  
+  // Refs for back button scroll restoration
+  const savedScrollPositionRef = useRef<number>(0);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
   const existingHolding = selectedQuote ? portfolio.holdings.find(h => h.symbol === selectedQuote.symbol) : null;
   const currentPrice = quote?.price ?? selectedQuote?.currentPrice ?? 0;
   const maxBuyShares = currentPrice > 0 ? Math.floor(portfolio.cash / currentPrice) : 0;
@@ -983,6 +988,12 @@ const TradeModal = ({
         dayChangePercent: 0,
         assetClass: detectAssetClass(searchResult?.type || 'stock', symbol)
       });
+      
+      // Save scroll position before transitioning
+      if (resultsContainerRef.current) {
+        savedScrollPositionRef.current = resultsContainerRef.current.scrollTop;
+      }
+      
       setStep('details');
 
       // Check if we own this stock
@@ -1160,6 +1171,35 @@ const TradeModal = ({
     onTradeComplete();
     onClose();
   }, [onTradeComplete, onClose]);
+
+  // Back button handler - return to search results preserving scroll
+  const handleBackToSearch = useCallback(() => {
+    // Clear asset-specific data
+    setQuote(null);
+    setFundamentals(null);
+    setProfile(null);
+    setSelectedQuote(null);
+    setShares('');
+    setDollarAmount('');
+    setError('');
+    lastFetchedSymbol.current = null;
+    
+    // Clear quote refresh interval
+    if (quoteRefreshRef.current) {
+      clearInterval(quoteRefreshRef.current);
+      quoteRefreshRef.current = null;
+    }
+    
+    // Go back to search
+    setStep('search');
+    
+    // Restore scroll position after render
+    requestAnimationFrame(() => {
+      if (resultsContainerRef.current) {
+        resultsContainerRef.current.scrollTop = savedScrollPositionRef.current;
+      }
+    });
+  }, []);
   
   const handleSetMaxShares = () => {
     if (inputMode === 'shares') {
@@ -1191,11 +1231,22 @@ const TradeModal = ({
         
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
-          <h2 className="text-lg font-bold">
-            {step === 'search' && 'Search Asset'}
-            {step === 'details' && 'Trade'}
-            {step === 'confirm' && 'Confirm Order'}
-          </h2>
+          <div className="flex items-center gap-2">
+            {step === 'details' && (
+              <button
+                onClick={handleBackToSearch}
+                className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
+                aria-label="Back to search"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+            )}
+            <h2 className="text-lg font-bold">
+              {step === 'search' && 'Search Asset'}
+              {step === 'details' && 'Trade'}
+              {step === 'confirm' && 'Confirm Order'}
+            </h2>
+          </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors">
             <X className="w-5 h-5" />
           </button>
@@ -1212,12 +1263,26 @@ const TradeModal = ({
               </div>
 
               {/* Search Results */}
-              {searchResults.length > 0 && <div className="space-y-1 max-h-[300px] overflow-y-auto">
+              {searchResults.length > 0 && <div ref={resultsContainerRef} className="space-y-1 max-h-[300px] overflow-y-auto">
                   {searchResults.map(result => <button key={result.symbol} onClick={() => handleSelectSymbol(result.symbol)} className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left">
                       <div>
-                        <p className="font-semibold text-primary">{result.symbol}</p>
+                        <p className="font-semibold text-primary">
+                          {highlightMatch(result.symbol, searchQuery).map((segment, i) => (
+                            segment.highlighted ? (
+                              <span key={i} className="bg-primary/20 rounded">{segment.text}</span>
+                            ) : (
+                              <span key={i}>{segment.text}</span>
+                            )
+                          ))}
+                        </p>
                         <p className="text-sm text-muted-foreground truncate max-w-[200px]">
-                          {result.name}
+                          {highlightMatch(result.name, searchQuery).map((segment, i) => (
+                            segment.highlighted ? (
+                              <span key={i} className="text-foreground font-medium">{segment.text}</span>
+                            ) : (
+                              <span key={i}>{segment.text}</span>
+                            )
+                          ))}
                         </p>
                       </div>
                       <span className="px-2 py-1 rounded-md bg-muted text-xs">
