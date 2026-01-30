@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/tooltip';
 import { supabase } from '@/integrations/supabase/client';
 import { Portfolio, QuoteData, Holding, AssetClass } from '@/lib/types';
-import { formatCurrency, formatPercent } from '@/lib/portfolio';
+import { formatCurrency, formatPercent, formatShares } from '@/lib/portfolio';
 import { 
   fetchQuote, 
   fetchFundamentals, 
@@ -1104,7 +1104,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 </div>
                 {existingHolding && (
                   <p className="text-xs text-primary mt-3 pt-3 border-t border-border/50">
-                    You own {existingHolding.shares.toFixed(4)} shares
+                    You own {formatShares(existingHolding.shares)} shares
                   </p>
                 )}
               </div>
@@ -1243,7 +1243,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                     className="text-xs text-primary hover:underline"
                   >
                     {inputMode === 'shares' 
-                      ? `Max: ${tradeType === 'buy' ? maxBuyShares : maxSellShares} shares`
+                      ? `Max: ${formatShares(tradeType === 'buy' ? maxBuyShares : maxSellShares)} shares`
                       : `Max: ${formatCurrency(tradeType === 'buy' ? portfolio.cash : maxSellShares * currentPrice)}`
                     }
                   </button>
@@ -1278,7 +1278,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                 {/* Shares preview for dollar input */}
                 {inputMode === 'dollars' && dollarAmount && Number(dollarAmount) > 0 && (
                   <p className="text-xs text-muted-foreground mt-2">
-                    ≈ {effectiveShares.toFixed(4)} shares
+                    ≈ {formatShares(effectiveShares)} shares
                   </p>
                 )}
               </div>
@@ -1294,7 +1294,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">
-                      {effectiveShares.toFixed(4)} shares × {formatCurrency(currentPrice)}
+                      {formatShares(effectiveShares)} shares × {formatCurrency(currentPrice)}
                     </span>
                     <span className="font-bold">{formatCurrency(totalCost)}</span>
                   </div>

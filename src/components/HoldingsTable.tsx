@@ -1,6 +1,6 @@
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { Holding } from '@/lib/types';
-import { formatCurrency, formatPercent } from '@/lib/portfolio';
+import { formatCurrency, formatPercent, formatShares } from '@/lib/portfolio';
 import { getAssetClassLabel } from '@/lib/allocation';
 
 interface HoldingsTableProps {
@@ -58,7 +58,7 @@ const HoldingsTable = ({ holdings, onTrade }: HoldingsTableProps) => {
                       {getAssetClassLabel(holding.assetClass)}
                     </span>
                   </td>
-                  <td className="p-4 text-right font-medium">{holding.shares}</td>
+                  <td className="p-4 text-right font-medium">{formatShares(holding.shares)}</td>
                   <td className="p-4 text-right text-muted-foreground hidden md:table-cell">
                     {formatCurrency(holding.avgCost)}
                   </td>
