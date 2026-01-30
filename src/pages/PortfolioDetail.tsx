@@ -13,7 +13,7 @@ import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
-import { formatCurrency } from '@/lib/portfolio';
+import { formatCurrency, formatShares } from '@/lib/portfolio';
 
 const REFRESH_INTERVAL_MS = 20000; // 20 seconds - balanced for Finnhub free tier
 
@@ -324,7 +324,7 @@ const PortfolioDetail = () => {
                     <div>
                       <p className="font-medium">{tx.symbol}</p>
                       <p className="text-xs text-muted-foreground">
-                        {tx.shares} shares @ {formatCurrency(tx.price)}
+                        {formatShares(tx.shares)} shares @ {formatCurrency(tx.price)}
                       </p>
                     </div>
                   </div>

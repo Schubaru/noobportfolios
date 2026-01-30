@@ -182,3 +182,32 @@ export const formatCompactNumber = (value: number): string => {
   }
   return value.toFixed(2);
 };
+
+/**
+ * Format shares for display - rounds to 2 decimals for readability
+ * while preserving negative sign and trimming unnecessary trailing zeros.
+ * 
+ * Examples:
+ * - 10.123456 -> "10.12"
+ * - 10.00 -> "10"
+ * - 10.10 -> "10.1"
+ * - 0.5 -> "0.5"
+ * - null/undefined/NaN -> "0"
+ */
+export const formatShares = (value: number | string | null | undefined): string => {
+  if (value === null || value === undefined) return '0';
+  
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  
+  if (isNaN(num)) return '0';
+  
+  // Round to 2 decimals, then convert to number to trim trailing zeros
+  const rounded = Math.round(num * 100) / 100;
+  
+  // Use toLocaleString to format with proper thousands separators
+  // and automatic trailing zero trimming
+  return rounded.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};

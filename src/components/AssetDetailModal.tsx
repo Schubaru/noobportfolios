@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, TrendingUp, TrendingDown, ArrowRightLeft } from 'lucide-react';
 import { Holding } from '@/lib/types';
 import { fetchQuote, FinnhubQuote } from '@/lib/finnhub';
-import { formatCurrency, formatPercent } from '@/lib/portfolio';
+import { formatCurrency, formatPercent, formatShares } from '@/lib/portfolio';
 import { getAssetClassLabel, getAssetClassColor } from '@/lib/allocation';
 
 interface AssetDetailModalProps {
@@ -125,7 +125,7 @@ const AssetDetailModal = ({ isOpen, onClose, holding, onTrade }: AssetDetailModa
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-lg bg-secondary/50">
                   <p className="text-xs text-muted-foreground mb-1">Shares</p>
-                  <p className="font-medium">{holding.shares}</p>
+                  <p className="font-medium">{formatShares(holding.shares)}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-secondary/50">
                   <p className="text-xs text-muted-foreground mb-1">Avg Cost</p>
