@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle } from 'lucide-react';
+import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle, ChevronLeft } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -349,6 +349,9 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
   // Quote refresh interval
   const quoteRefreshRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchedSymbol = useRef<string | null>(null);
+  
+  // Scroll position preservation for back navigation
+  const savedScrollPositionRef = useRef<number>(0);
 
   const existingHolding = selectedQuote 
     ? portfolio.holdings.find(h => h.symbol === selectedQuote.symbol)
@@ -576,6 +579,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
   }, [highlightedIndex]);
 
   const handleSelectSymbol = async (symbol: string) => {
+    // Save scroll position before transitioning to details
+    if (resultsContainerRef.current) {
+      savedScrollPositionRef.current = resultsContainerRef.current.scrollTop;
+    }
+    
     setIsLoading(true);
     setError('');
     
@@ -613,6 +621,35 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
       setIsLoading(false);
     }
   };
+
+  // Back to search handler - preserves query and results, restores scroll position
+  const handleBackToSearch = useCallback(() => {
+    // Clear asset-specific data only
+    setQuote(null);
+    setFundamentals(null);
+    setProfile(null);
+    setSelectedQuote(null);
+    setShares('');
+    setDollarAmount('');
+    setError('');
+    lastFetchedSymbol.current = null;
+    
+    // Clear quote refresh interval
+    if (quoteRefreshRef.current) {
+      clearInterval(quoteRefreshRef.current);
+      quoteRefreshRef.current = null;
+    }
+    
+    // Go back to search
+    setStep('search');
+    
+    // Restore scroll position after render
+    requestAnimationFrame(() => {
+      if (resultsContainerRef.current) {
+        resultsContainerRef.current.scrollTop = savedScrollPositionRef.current;
+      }
+    });
+  }, []);
 
   const handleConfirmTrade = async () => {
     if (!hasValidInput || currentPrice <= 0) return;
@@ -826,11 +863,22 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
       <div className="relative w-full max-w-lg glass-card slide-up overflow-hidden max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
-          <h2 className="text-lg font-bold">
-            {step === 'search' && 'Search Ticker'}
-            {step === 'details' && 'Trade'}
-            {step === 'confirm' && 'Confirm Order'}
-          </h2>
+          <div className="flex items-center gap-2">
+            {step === 'details' && (
+              <button
+                onClick={handleBackToSearch}
+                className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
+                aria-label="Back to search"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+            )}
+            <h2 className="text-lg font-bold">
+              {step === 'search' && 'Search Ticker'}
+              {step === 'details' && 'Trade'}
+              {step === 'confirm' && 'Confirm Order'}
+            </h2>
+          </div>
           <button
             onClick={onClose}
             className="p-2 rounded-lg hover:bg-muted transition-colors"
@@ -1322,17 +1370,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
               {/* Actions */}
               <div className="flex gap-3">
                 <button
-                  onClick={() => {
-                    setQuote(null);
-                    setFundamentals(null);
-                    setProfile(null);
-                    setSelectedQuote(null);
-                    setStep('search');
-                    setShares('');
-                    setDollarAmount('');
-                    setError('');
-                    lastFetchedSymbol.current = null;
-                  }}
+                  onClick={handleBackToSearch}
                   className="flex-1 py-3 rounded-xl border border-border font-medium hover:bg-secondary transition-colors"
                 >
                   Back
