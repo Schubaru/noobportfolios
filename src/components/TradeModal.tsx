@@ -1287,11 +1287,11 @@ const TradeModal = ({
               {/* Search Results */}
               {searchResults.length > 0 && <div ref={resultsContainerRef} className="space-y-1 max-h-[300px] overflow-y-auto">
                   {searchResults.map(result => <button key={result.symbol} onClick={() => handleSelectSymbol(result.symbol)} className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
                         {/* OWNED badge for holdings */}
                         {result.source === 'holding' && (
-                          <span className="px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[10px] font-medium">
-                            OWNED
+                          <span className="px-2 py-1 rounded bg-primary/20 text-primary text-[10px] font-medium uppercase tracking-wide">
+                            Owned
                           </span>
                         )}
                         <div>
@@ -1320,8 +1320,6 @@ const TradeModal = ({
                       </span>
                     </button>)}
                 </div>}
-
-              {/* No Results Message */}
               {searchQuery && !isSearching && searchResults.length === 0 && <p className="text-center text-muted-foreground py-4">
                   No results found for "{searchQuery}"
                 </p>}
