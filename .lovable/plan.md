@@ -1,250 +1,267 @@
 
-# Strict Spelling-Based Search for Trade Modal
 
-## Problem Statement
+# Trade Confirmation Animation
 
-When users type specific queries like "jpmorgan", the search returns loosely related assets (e.g., "MS" Morgan Stanley, "CSCO" Cisco) that don't contain the typed substring. This happens because the current algorithm uses fuzzy matching (Levenshtein distance) that matches partial/similar words, creating unpredictable "mystery matches."
+## Problem & Goal
 
-**Current behavior:** Typing "jpmorgan" shows MS, CSCO, and other unrelated tickers
-**Expected behavior:** Only show assets where ticker OR name contains "jpmorgan" as a substring
+**Current behavior**: After a trade executes successfully, the modal immediately closes with no visual feedback. Users are left wondering if their trade went through until they see the updated portfolio data.
 
----
+**Goal**: Add a quick, delightful confirmation animation that clearly signals successful trade execution without slowing users down. The animation should feel instant, trustworthy, and on-brand with N00B Portfolios' dark, modern aesthetic.
 
-## Acceptance Criteria
-
-### Matching Rules
-
-1. **Normalization**: Lowercase both query and asset fields; trim whitespace; collapse multiple spaces to single space; remove punctuation (`.`, `&`, `'`) for matching but preserve original display text
-
-2. **Strict Substring Filtering**: Only include results where:
-   - `normalizedTicker.includes(normalizedQuery)` OR
-   - `normalizedName.includes(normalizedQuery)`
-   - No fuzzy/Levenshtein matching for filtering
-
-3. **Minimum Query Length**: 
-   - 1 character: Show local results only (no API call)
-   - 2+ characters: Include API search
-   - 0 characters: Show "Suggested Assets" section
-
-4. **No False Positives**: If query substring is not found in ticker or name, the asset must NOT appear in results
-
-### Ranking (Deterministic, Spelling-Based)
-
-| Tier | Match Type | Score |
-|------|------------|-------|
-| 1 | Ticker exact match | 5000 |
-| 2 | Ticker starts with query | 3000 |
-| 3 | Name starts with query | 2000 |
-| 4 | Ticker contains query | 1500 |
-| 5 | Name contains query (word boundary) | 1000 |
-| 6 | Name contains query (anywhere) | 800 |
-
-**Within tiers:**
-- Owned assets get +10000 bonus (always sort first)
-- Then by popularity score (for local catalog items)
-- Then alphabetically by symbol
+**What "successfully confirmed" means**: The trade has completed all database operations (portfolio cash updated, holdings modified, transaction recorded, value history logged) without errors.
 
 ---
 
-## Implementation Changes
+## Trigger Conditions & Constraints
 
-### File: `src/lib/searchAssets.ts`
+| Aspect | Specification |
+|--------|---------------|
+| **Trigger** | Only after successful trade execution (after line 1079-1082 in `handleConfirmTrade`) |
+| **NOT triggered** | Validation errors, API errors, pending states |
+| **Duration** | ~1200ms total (fast enough to not feel slow, long enough to register) |
+| **Blocking** | Non-blocking - user can close modal during animation if desired |
+| **Rapid trades** | Each successful trade shows its own animation; modal closes after each |
+| **Location** | Full-screen overlay within the modal (replaces loading spinner) |
 
-#### 1. Add Normalization Utility
+---
+
+## Animation Concepts
+
+### Option A: Checkmark Pulse (Recommended)
+A centered checkmark icon scales in from 0, pulses with a subtle glow, then the modal auto-closes. Uses the app's primary color for success.
+
+- **Duration**: 1000-1200ms
+- **Location**: Centered overlay within modal content area
+- **Motion**: Scale 0 -> 1.1 -> 1.0 with opacity fade, subtle ring pulse
+
+### Option B: Slide-Up Confirmation Card
+A compact success card slides up from the bottom of the modal with trade details, then the modal closes.
+
+- **Duration**: 1400ms (slightly longer for readability)
+- **Location**: Bottom of modal, slides up over content
+- **Motion**: translateY(100%) -> translateY(0) with spring easing
+
+### Option C: Icon Swap with Glow
+The "Buy/Sell" button transforms into a checkmark with an expanding glow ring, then modal closes.
+
+- **Duration**: 800ms
+- **Location**: In-place on the action button
+- **Motion**: Button content crossfade, ring expansion
+
+**Recommendation**: Option A (Checkmark Pulse) - It's the clearest success signal, doesn't require reading text, works equally well for buy/sell, and matches the app's minimal dark aesthetic. Duration is optimal for recognition without delay.
+
+---
+
+## Visual Specification for Option A
+
+### Elements
+
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│           ╭─────────────╮               │
+│           │             │               │
+│           │      ✓      │  <- Check     │
+│           │             │     icon      │
+│           ╰─────────────╯               │
+│                                         │
+│        "Order Executed"                 │
+│    "Bought 0.25 shares of VOO"          │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+### Colors
+
+- **Icon circle background**: `bg-primary/10` (subtle cyan/teal tint)
+- **Checkmark icon**: `text-primary` (the app's cyan accent - `hsl(190, 100%, 50%)`)
+- **Glow ring**: `ring-primary/30` pulsing to `ring-primary/50`
+- **Text**: White (`text-foreground`) for title, muted for details
+
+### Motion Sequence (1200ms total)
+
+1. **0-200ms**: Overlay fades in (`opacity: 0 -> 1`), checkmark scales in (`scale: 0 -> 1.15`) with `cubic-bezier(0.34, 1.56, 0.64, 1)` (spring overshoot)
+2. **200-400ms**: Checkmark settles (`scale: 1.15 -> 1.0`) with `ease-out`
+3. **400-800ms**: Glow ring pulses once (opacity pulse)
+4. **800-1200ms**: Hold, then auto-close modal
+
+### Accessibility
+
+- **Reduced motion**: Skip scale/glow animations; show static checkmark for 600ms then close
+- **Screen reader**: Announce "Order executed" via `aria-live="polite"`
+- **Focus management**: Keep focus trapped in modal until closed
+
+---
+
+## Implementation Approach
+
+### 1. Add Trade Status State
 
 ```typescript
-/**
- * Normalize text for search matching
- * - Lowercase
- * - Remove punctuation (., &, ', -)
- * - Collapse multiple spaces to single space
- * - Trim whitespace
- */
-function normalizeForSearch(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[.&'\-]/g, '')     // Remove common punctuation
-    .replace(/\s+/g, ' ')        // Collapse spaces
-    .trim();
+type TradeStatus = 'idle' | 'executing' | 'success' | 'error';
+const [tradeStatus, setTradeStatus] = useState<TradeStatus>('idle');
+```
+
+### 2. Create Success Overlay Component
+
+New internal component `TradeSuccessOverlay` rendered conditionally when `tradeStatus === 'success'`:
+
+```typescript
+function TradeSuccessOverlay({
+  tradeType,
+  symbol,
+  shares,
+  onComplete
+}: {
+  tradeType: 'buy' | 'sell';
+  symbol: string;
+  shares: number;
+  onComplete: () => void;
+}) {
+  // Check for reduced motion preference
+  const prefersReducedMotion = useReducedMotion();
+  
+  useEffect(() => {
+    const timer = setTimeout(onComplete, prefersReducedMotion ? 600 : 1200);
+    return () => clearTimeout(timer);
+  }, [onComplete, prefersReducedMotion]);
+  
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center bg-card/95 backdrop-blur-sm z-20">
+      <div className={cn(
+        "flex flex-col items-center",
+        !prefersReducedMotion && "animate-success-enter"
+      )}>
+        {/* Checkmark with glow */}
+        <div className={cn(
+          "w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center",
+          !prefersReducedMotion && "animate-success-glow"
+        )}>
+          <Check className="w-8 h-8 text-primary" />
+        </div>
+        
+        {/* Text */}
+        <p className="text-lg font-semibold mt-4">Order Executed</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          {tradeType === 'buy' ? 'Bought' : 'Sold'} {formatShares(shares)} shares of {symbol}
+        </p>
+      </div>
+    </div>
+  );
 }
 ```
 
-#### 2. Rewrite `calculateMatchScore` - Remove Fuzzy Matching
+### 3. Add Reduced Motion Hook
 
 ```typescript
-function calculateMatchScore(
-  asset: LocalAsset | FinnhubSearchResult,
-  normalizedQuery: string,
-  isHolding: boolean
-): number {
-  const symbol = asset.symbol.toLowerCase();
-  const normalizedName = normalizeForSearch(asset.name);
-  const q = normalizedQuery;
+function useReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   
-  let score = 0;
-  
-  // Ownership bonus (highest priority)
-  if (isHolding) score += 10000;
-  
-  // Tier 1: Ticker exact match
-  if (symbol === q) {
-    score += 5000;
-  }
-  // Tier 2: Ticker starts with query
-  else if (symbol.startsWith(q)) {
-    score += 3000;
-  }
-  // Tier 3: Name starts with query
-  else if (normalizedName.startsWith(q)) {
-    score += 2000;
-  }
-  // Tier 4: Ticker contains query
-  else if (symbol.includes(q)) {
-    score += 1500;
-  }
-  // Tier 5: Name contains query at word boundary
-  else if (normalizedName.split(' ').some(word => word.startsWith(q))) {
-    score += 1000;
-  }
-  // Tier 6: Name contains query anywhere
-  else if (normalizedName.includes(q)) {
-    score += 800;
-  }
-  // NO MATCH - return 0 (will be filtered out)
-  else {
-    return 0;
-  }
-  
-  // Add popularity bonus for local assets (0-100 range)
-  if ('popularity' in asset) {
-    score += (asset as LocalAsset).popularity;
-  }
-  
-  return score;
-}
-```
-
-**Key change:** The `else` block at the end now returns `0` instead of doing fuzzy matching. This means assets that don't contain the query substring get score=0 and are filtered out.
-
-#### 3. Update `searchLocalCatalog` - Pre-normalize Query
-
-```typescript
-export function searchLocalCatalog(
-  query: string,
-  holdings: Holding[] = [],
-  limit: number = 15
-): SearchAssetResult[] {
-  if (!query || query.length < 1) return [];
-  
-  // Normalize query once for all comparisons
-  const normalizedQuery = normalizeForSearch(query);
-  if (!normalizedQuery) return [];
-  
-  const holdingSymbols = new Set(holdings.map(h => h.symbol.toUpperCase()));
-  const results: SearchAssetResult[] = [];
-  const seen = new Set<string>();
-  
-  // Check user holdings first (STRICT substring match)
-  for (const holding of holdings) {
-    const symbol = holding.symbol.toUpperCase();
-    const symbolLower = symbol.toLowerCase();
-    const normalizedName = normalizeForSearch(holding.name);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mediaQuery.matches);
     
-    // STRICT: Must contain query as substring
-    if (symbolLower.includes(normalizedQuery) || normalizedName.includes(normalizedQuery)) {
-      // ... rest of holding processing (unchanged)
-    }
-  }
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
   
-  // Search catalog (STRICT substring match via score > 0)
-  for (const asset of ASSET_CATALOG) {
-    if (seen.has(asset.symbol)) continue;
-    
-    const score = calculateMatchScore(asset, normalizedQuery, holdingSymbols.has(asset.symbol));
-    
-    // Only include if there's a real match (score > 0 means substring found)
-    if (score > 0) {
-      // ... add to results (unchanged)
-    }
-  }
-  
-  // Sort and return (unchanged)
+  return prefersReducedMotion;
 }
 ```
 
-#### 4. Update `hybridSearch` - Apply Same Rules to API Results
+### 4. Add CSS Keyframes to index.css
 
-When merging API results, also apply strict substring filtering:
+```css
+@keyframes successEnter {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes successGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 8px hsl(var(--primary) / 0.2);
+  }
+}
+
+.animate-success-enter {
+  animation: successEnter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-success-glow {
+  animation: successGlow 0.8s ease-in-out 0.4s;
+}
+```
+
+### 5. Modify handleConfirmTrade Flow
 
 ```typescript
-for (const apiResult of apiResults) {
-  if (seenSymbols.has(apiResult.symbol)) continue;
-  
-  const score = calculateMatchScore(apiResult, normalizedQuery, false);
-  
-  // STRICT: Only include if substring match found
-  if (score === 0) continue;
-  
-  // ... add to merged results
-}
+// Line 1079: After all DB operations succeed
+setTradeStatus('success');
+// Remove immediate onClose() and onTradeComplete() calls
+
+// Move them to success overlay's onComplete callback:
+const handleSuccessComplete = useCallback(() => {
+  setTradeStatus('idle');
+  onTradeComplete();
+  onClose();
+}, [onTradeComplete, onClose]);
 ```
 
-#### 5. Update `highlightMatch` - Handle Normalized Matching
+### 6. Render Success Overlay in Modal
 
-The current `highlightMatch` works with simple substring indexOf, which is correct. However, we should ensure it uses the same normalization logic when finding matches:
+Add inside the modal container, positioned absolutely:
 
-```typescript
-export function highlightMatch(
-  text: string,
-  query: string
-): { text: string; highlighted: boolean }[] {
-  if (!query || query.length < 1) {
-    return [{ text, highlighted: false }];
-  }
-  
-  // Normalize both for matching, but preserve original text for display
-  const normalizedQuery = normalizeForSearch(query);
-  const normalizedText = normalizeForSearch(text);
-  
-  // Find match position in normalized text
-  const matchIndex = normalizedText.indexOf(normalizedQuery);
-  
-  if (matchIndex === -1) {
-    return [{ text, highlighted: false }];
-  }
-  
-  // Map normalized position back to original text
-  // ... highlight the corresponding portion in original text
-}
+```tsx
+{tradeStatus === 'success' && (
+  <TradeSuccessOverlay
+    tradeType={tradeType}
+    symbol={displaySymbol}
+    shares={effectiveShares}
+    onComplete={handleSuccessComplete}
+  />
+)}
 ```
-
-*Note: This requires a more sophisticated approach to map positions between normalized and original text. For simplicity, we can keep the current implementation since it already does case-insensitive matching, and the strict filter ensures only real matches appear.*
 
 ---
 
-## Test Cases
+## Edge Cases
 
-| Query | Expected Results | Not Expected |
-|-------|-----------------|--------------|
-| `jpmorgan` | JPM, JEPI, JEPQ (contain "jpmorgan" in name) | MS, CSCO, BAC |
-| `jp` | JPM, JEPI, JEPQ (ticker or name starts with/contains "jp") | Only if query ≥2 chars for API |
-| `voo` | VOO at top (exact ticker match) | Any asset without "voo" in ticker/name |
-| `apple` | AAPL (name contains "apple") | MSFT, other tech stocks |
-| `microsoft` | MSFT (name contains "microsoft") | Other tech without "microsoft" |
-| `s&p` | Assets with "S&P" in name (normalized to "sp") | Unrelated tickers |
-| `etf` | ETFs with "etf" in name | Stocks without "etf" in name |
+| Scenario | Handling |
+|----------|----------|
+| **User closes modal mid-animation** | Allow close via X button; cleanup timer, call `onTradeComplete()` |
+| **Very fast execution** | Animation still plays for full duration (1200ms) - feels intentional |
+| **Error after partial writes** | `tradeStatus` stays 'executing', error state shows, no success animation |
+| **Retry after error** | User fixes input and retries; success animation plays on successful retry |
+| **Rapid consecutive trades** | Each trade is independent; modal closes after success, user reopens for next trade |
+| **Reduced motion preference** | Static checkmark, shorter duration (600ms), no scale/glow animations |
 
 ---
 
-## UI Behavior (Unchanged)
+## Copy & Tone
 
-- **Debounce**: Keep 350ms for API, instant for local
-- **Scroll**: Reset to top when query changes
-- **Highlighting**: Keep current substring highlighting (only visible for real matches now)
-- **OWNED badge**: Keep for user holdings
-- **Type chips**: Keep (ETF/Stock/REIT/Bond)
-- **Empty state**: Keep "No matches for '{query}'" message
-- **Suggested assets**: Keep showing when query is empty
+| Element | Text |
+|---------|------|
+| **Title** | "Order Executed" (confident, factual) |
+| **Detail - Buy** | "Bought {shares} shares of {SYMBOL}" |
+| **Detail - Sell** | "Sold {shares} shares of {SYMBOL}" |
+
+The copy is:
+- Minimal (not verbose like "Congratulations! Your order has been...")
+- Factual (confirms what happened)
+- Beginner-friendly (uses "shares" not "units")
 
 ---
 
@@ -252,33 +269,19 @@ export function highlightMatch(
 
 | File | Changes |
 |------|---------|
-| `src/lib/searchAssets.ts` | Add `normalizeForSearch()`, rewrite `calculateMatchScore()` to remove fuzzy matching, update `searchLocalCatalog()` and `hybridSearch()` to use normalized query |
-
-No changes needed to:
-- `TradeModal.tsx` (uses same search functions, UI stays identical)
-- `assetCatalog.ts` (data unchanged)
-- `market-search/index.ts` (API filtering happens on client)
+| `src/components/TradeModal.tsx` | Add `TradeSuccessOverlay` component, `tradeStatus` state, `useReducedMotion` hook, modify `handleConfirmTrade` flow |
+| `src/index.css` | Add `successEnter` and `successGlow` keyframes and utility classes |
+| `src/lib/portfolio.ts` | Already has `formatShares` - no changes needed |
 
 ---
 
-## Technical Notes
+## Technical Summary
 
-### Why Remove Fuzzy Matching Entirely?
+1. Add `tradeStatus: 'idle' | 'executing' | 'success' | 'error'` state
+2. On successful trade, set `tradeStatus = 'success'` instead of immediately closing
+3. Render `TradeSuccessOverlay` when status is 'success'
+4. Overlay auto-closes after 1200ms (600ms for reduced motion)
+5. `onComplete` callback resets status and calls `onTradeComplete()` + `onClose()`
+6. CSS-only animations (no external library needed)
+7. Respects `prefers-reduced-motion` media query
 
-The original intent was to handle typos (e.g., "appl" → "AAPL"), but:
-1. Users expect search to filter precisely as they type
-2. Fuzzy matches create confusing "mystery results"
-3. For a 200-item local catalog, substring matching is sufficient
-4. API results from Finnhub already handle fuzzy matching server-side
-
-### Performance
-
-- Normalization is O(n) string operations, negligible for ~200 items
-- No change to debounce timing or caching strategy
-- Levenshtein distance calculation (O(n²)) is removed, so performance actually improves
-
-### Edge Cases
-
-- **Empty query after normalization** (e.g., user types only punctuation): Return empty results
-- **Spaces in query**: "jp morgan" normalized to "jp morgan" can match "jpmorgan chase" normalized to "jpmorgan chase" (spaces collapsed)
-- **Special characters**: Safely stripped during normalization
