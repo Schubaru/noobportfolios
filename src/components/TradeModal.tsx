@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { X, Search, TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign, Hash, Building2, Globe, Banknote, Info, HelpCircle } from 'lucide-react';
 import {
   Tooltip,
@@ -13,7 +13,6 @@ import {
   fetchQuote, 
   fetchFundamentals, 
   fetchProfile, 
-  searchSymbolsApi,
   formatLargeNumber,
   formatVolume,
   formatMetricPercent,
@@ -22,9 +21,15 @@ import {
   FinnhubQuote,
   FinnhubFundamentals,
   FinnhubProfile,
-  FinnhubSearchResult
 } from '@/lib/finnhub';
 import { Skeleton } from '@/components/ui/skeleton';
+import { 
+  hybridSearch, 
+  searchLocalCatalog, 
+  highlightMatch, 
+  SearchAssetResult,
+  isRateLimited,
+} from '@/lib/searchAssets';
 
 interface TradeModalProps {
   isOpen: boolean;
@@ -315,8 +320,10 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
   const [tradeType, setTradeType] = useState<TradeType>('buy');
   const [inputMode, setInputMode] = useState<InputMode>('shares');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<FinnhubSearchResult[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchAssetResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchRateLimited, setSearchRateLimited] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   
   // Market data state
   const [quote, setQuote] = useState<FinnhubQuote | null>(null);
@@ -333,6 +340,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
   const [dollarAmount, setDollarAmount] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Refs
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   
   // Quote refresh interval
   const quoteRefreshRef = useRef<NodeJS.Timeout | null>(null);
@@ -369,6 +381,8 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setInputMode('shares');
     setSearchQuery('');
     setSearchResults([]);
+    setHighlightedIndex(-1);
+    setSearchRateLimited(false);
     setQuote(null);
     setFundamentals(null);
     setProfile(null);
@@ -381,6 +395,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     setLoadingFundamentals(false);
     setLoadingProfile(false);
     lastFetchedSymbol.current = null;
+    
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     
     if (quoteRefreshRef.current) {
       clearInterval(quoteRefreshRef.current);
@@ -453,39 +472,108 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
     };
   }, [step, refreshQuote]);
 
-  // Search with debounce - use real Finnhub API only
+  // Hybrid search: local results immediately, API results after debounce
   useEffect(() => {
-    const searchTickers = async () => {
-      if (searchQuery.length < 1) {
-        setSearchResults([]);
-        return;
-      }
+    if (searchQuery.length < 1) {
+      setSearchResults([]);
+      setHighlightedIndex(-1);
+      return;
+    }
 
-      setIsSearching(true);
+    // Immediately show local results
+    const localResults = searchLocalCatalog(searchQuery, portfolio.holdings);
+    setSearchResults(localResults);
+    setHighlightedIndex(-1);
+    
+    // For API search, use debounce (350ms) and min 2 chars
+    if (searchQuery.length < 2) {
+      setIsSearching(false);
+      return;
+    }
+
+    // Cancel previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    setIsSearching(true);
+    
+    const debounceTimer = setTimeout(async () => {
       try {
-        const apiResult = await searchSymbolsApi(searchQuery);
-        if (apiResult.data && apiResult.data.length > 0) {
-          // Ensure assetClass is properly set from API response
-          setSearchResults(apiResult.data.map(r => ({
-            ...r,
-            assetClass: r.assetClass || detectAssetClass(r.type, r.symbol),
-          })));
-        } else {
-          // No results from API - show empty state
-          setSearchResults([]);
+        const { results, isRateLimited: rateLimited } = await hybridSearch(
+          searchQuery,
+          portfolio.holdings,
+          { 
+            includeApi: true, 
+            limit: 15,
+            abortSignal: abortControllerRef.current?.signal,
+          }
+        );
+        
+        if (!abortControllerRef.current?.signal.aborted) {
+          setSearchResults(results);
+          setSearchRateLimited(rateLimited);
         }
       } catch {
-        // API error - show empty state
-        setSearchResults([]);
-        console.error('Search API error');
+        // Ignore abort errors
       } finally {
-        setIsSearching(false);
+        if (!abortControllerRef.current?.signal.aborted) {
+          setIsSearching(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      clearTimeout(debounceTimer);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
     };
+  }, [searchQuery, portfolio.holdings]);
 
-    const debounce = setTimeout(searchTickers, 300);
-    return () => clearTimeout(debounce);
-  }, [searchQuery]);
+  // Keyboard navigation for search results
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (searchResults.length === 0) return;
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightedIndex(prev => 
+          prev < searchResults.length - 1 ? prev + 1 : prev
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightedIndex(prev => prev > 0 ? prev - 1 : -1);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (highlightedIndex >= 0 && highlightedIndex < searchResults.length) {
+          handleSelectSymbol(searchResults[highlightedIndex].symbol);
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setSearchQuery('');
+        setSearchResults([]);
+        setHighlightedIndex(-1);
+        break;
+    }
+  }, [searchResults, highlightedIndex]);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (highlightedIndex >= 0 && resultsContainerRef.current) {
+      const container = resultsContainerRef.current;
+      const items = container.querySelectorAll('[data-result-item]');
+      const highlightedItem = items[highlightedIndex] as HTMLElement;
+      
+      if (highlightedItem) {
+        highlightedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [highlightedIndex]);
 
   const handleSelectSymbol = async (symbol: string) => {
     setIsLoading(true);
@@ -497,6 +585,11 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
       
       // Create a placeholder quote for trade calculations (will be populated by real data)
       const searchResult = searchResults.find(r => r.symbol === symbol);
+      const assetClass = searchResult?.assetClass || 
+        (KNOWN_BOND_SYMBOLS.has(symbol.toUpperCase()) ? 'bond' :
+         KNOWN_REIT_SYMBOLS.has(symbol.toUpperCase()) ? 'reit' :
+         KNOWN_ETF_SYMBOLS.has(symbol.toUpperCase()) ? 'etf' : 'stock');
+      
       setSelectedQuote({
         symbol,
         name: searchResult?.name || symbol,
@@ -504,7 +597,7 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
         previousClose: 0,
         dayChange: 0,
         dayChangePercent: 0,
-        assetClass: detectAssetClass(searchResult?.type || 'stock', symbol),
+        assetClass,
       });
       
       setStep('details');
@@ -754,46 +847,109 @@ const TradeModal = ({ isOpen, onClose, portfolio, onTradeComplete, initialSymbol
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <input
+                  ref={searchInputRef}
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by symbol or name..."
-                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-secondary border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search stocks, ETFs, or funds..."
+                  className="w-full pl-10 pr-10 py-3 rounded-xl bg-secondary border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
                   autoFocus
                 />
                 {isSearching && (
                   <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground animate-spin" />
                 )}
               </div>
+              
+              {/* Helper text */}
+              {!searchQuery && (
+                <p className="text-xs text-muted-foreground/70 px-1">
+                  Try "Apple" or "VOO"
+                </p>
+              )}
+
+              {/* Rate limit soft warning */}
+              {searchRateLimited && searchQuery.length >= 2 && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 text-xs text-muted-foreground">
+                  <Info className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>Showing saved results. More options available in a moment.</span>
+                </div>
+              )}
 
               {/* Search Results */}
               {searchResults.length > 0 && (
-                <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                  {searchResults.map((result) => (
-                    <button
-                      key={result.symbol}
-                      onClick={() => handleSelectSymbol(result.symbol)}
-                      className="w-full p-3 rounded-lg hover:bg-secondary flex items-center justify-between transition-colors text-left"
-                    >
-                      <div>
-                        <p className="font-semibold text-primary">{result.symbol}</p>
-                        <p className="text-sm text-muted-foreground truncate max-w-[200px]">
-                          {result.name}
-                        </p>
-                      </div>
-                      <span className="px-2 py-1 rounded-md bg-muted text-xs">
-                        {result.type}
-                      </span>
-                    </button>
-                  ))}
+                <div 
+                  ref={resultsContainerRef}
+                  className="space-y-1 max-h-[300px] overflow-y-auto"
+                  role="listbox"
+                  aria-label="Search results"
+                >
+                  {searchResults.map((result, index) => {
+                    const symbolHighlight = highlightMatch(result.symbol, searchQuery);
+                    const nameHighlight = highlightMatch(result.name, searchQuery);
+                    const isHighlighted = index === highlightedIndex;
+                    const isHolding = result.source === 'holding';
+                    
+                    return (
+                      <button
+                        key={result.symbol}
+                        data-result-item
+                        role="option"
+                        aria-selected={isHighlighted}
+                        onClick={() => handleSelectSymbol(result.symbol)}
+                        className={`w-full p-3 rounded-lg flex items-center justify-between transition-colors text-left min-h-[52px] ${
+                          isHighlighted 
+                            ? 'bg-primary/10 border border-primary/30' 
+                            : 'hover:bg-secondary border border-transparent'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-primary">
+                              {symbolHighlight.map((seg, i) => (
+                                <span key={i} className={seg.highlighted ? 'bg-primary/20 rounded px-0.5' : ''}>
+                                  {seg.text}
+                                </span>
+                              ))}
+                            </p>
+                            {isHolding && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                                OWNED
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground truncate max-w-[220px]">
+                            {nameHighlight.map((seg, i) => (
+                              <span key={i} className={seg.highlighted ? 'bg-primary/20 rounded px-0.5' : ''}>
+                                {seg.text}
+                              </span>
+                            ))}
+                          </p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-md text-xs whitespace-nowrap ml-2 ${
+                          result.assetClass === 'etf' ? 'bg-primary/10 text-primary' :
+                          result.assetClass === 'bond' ? 'bg-success/10 text-success' :
+                          result.assetClass === 'reit' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                          'bg-muted text-muted-foreground'
+                        }`}>
+                          {result.type}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
               {/* No Results Message */}
               {searchQuery && !isSearching && searchResults.length === 0 && (
-                <p className="text-center text-muted-foreground py-4">
-                  No results found for "{searchQuery}"
-                </p>
+                <div className="text-center py-6 space-y-2">
+                  <p className="text-muted-foreground">
+                    No matches for "{searchQuery}"
+                  </p>
+                  <p className="text-xs text-muted-foreground/70">
+                    Check the spelling or try a different term. You can also search by company name.
+                  </p>
+                </div>
               )}
 
               {/* Suggested Assets - shown when no search query */}
