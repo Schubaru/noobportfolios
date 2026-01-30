@@ -1,287 +1,193 @@
 
 
-# Trade Confirmation Animation
+# Restore Missing Trade Modal Features
 
-## Problem & Goal
+## Problem Identified
 
-**Current behavior**: After a trade executes successfully, the modal immediately closes with no visual feedback. Users are left wondering if their trade went through until they see the updated portfolio data.
+Two previously implemented features are no longer present in `TradeModal.tsx`:
 
-**Goal**: Add a quick, delightful confirmation animation that clearly signals successful trade execution without slowing users down. The animation should feel instant, trustworthy, and on-brand with N00B Portfolios' dark, modern aesthetic.
+1. **Back Button in Header** - The ChevronLeft icon and back navigation from the Details step to Search step is missing
+2. **Search Highlighting** - The `highlightMatch` function from `searchAssets.ts` is not being used to highlight matching text
 
-**What "successfully confirmed" means**: The trade has completed all database operations (portfolio cash updated, holdings modified, transaction recorded, value history logged) without errors.
+### What's Missing in the Code
 
----
-
-## Trigger Conditions & Constraints
-
-| Aspect | Specification |
-|--------|---------------|
-| **Trigger** | Only after successful trade execution (after line 1079-1082 in `handleConfirmTrade`) |
-| **NOT triggered** | Validation errors, API errors, pending states |
-| **Duration** | ~1200ms total (fast enough to not feel slow, long enough to register) |
-| **Blocking** | Non-blocking - user can close modal during animation if desired |
-| **Rapid trades** | Each successful trade shows its own animation; modal closes after each |
-| **Location** | Full-screen overlay within the modal (replaces loading spinner) |
+| Feature | Expected | Current |
+|---------|----------|---------|
+| `ChevronLeft` import | In lucide-react imports (line 2) | Not imported |
+| `savedScrollPositionRef` | Ref to save scroll position | Not defined |
+| `handleBackToSearch` | Callback function to go back | Not defined |
+| Back button in header | ChevronLeft button when `step === 'details'` | Not rendered (lines 1193-1202) |
+| `highlightMatch` import | Import from `@/lib/searchAssets` | Not imported |
+| Highlighted text in results | Use `highlightMatch()` for symbol/name display | Plain text only (lines 1218-1221) |
 
 ---
 
-## Animation Concepts
+## Changes Required
 
-### Option A: Checkmark Pulse (Recommended)
-A centered checkmark icon scales in from 0, pulses with a subtle glow, then the modal auto-closes. Uses the app's primary color for success.
+### File: `src/components/TradeModal.tsx`
 
-- **Duration**: 1000-1200ms
-- **Location**: Centered overlay within modal content area
-- **Motion**: Scale 0 -> 1.1 -> 1.0 with opacity fade, subtle ring pulse
+#### 1. Add ChevronLeft to imports (line 2)
 
-### Option B: Slide-Up Confirmation Card
-A compact success card slides up from the bottom of the modal with trade details, then the modal closes.
+Add `ChevronLeft` to the existing lucide-react import.
 
-- **Duration**: 1400ms (slightly longer for readability)
-- **Location**: Bottom of modal, slides up over content
-- **Motion**: translateY(100%) -> translateY(0) with spring easing
-
-### Option C: Icon Swap with Glow
-The "Buy/Sell" button transforms into a checkmark with an expanding glow ring, then modal closes.
-
-- **Duration**: 800ms
-- **Location**: In-place on the action button
-- **Motion**: Button content crossfade, ring expansion
-
-**Recommendation**: Option A (Checkmark Pulse) - It's the clearest success signal, doesn't require reading text, works equally well for buy/sell, and matches the app's minimal dark aesthetic. Duration is optimal for recognition without delay.
-
----
-
-## Visual Specification for Option A
-
-### Elements
-
-```
-┌─────────────────────────────────────────┐
-│                                         │
-│           ╭─────────────╮               │
-│           │             │               │
-│           │      ✓      │  <- Check     │
-│           │             │     icon      │
-│           ╰─────────────╯               │
-│                                         │
-│        "Order Executed"                 │
-│    "Bought 0.25 shares of VOO"          │
-│                                         │
-└─────────────────────────────────────────┘
-```
-
-### Colors
-
-- **Icon circle background**: `bg-primary/10` (subtle cyan/teal tint)
-- **Checkmark icon**: `text-primary` (the app's cyan accent - `hsl(190, 100%, 50%)`)
-- **Glow ring**: `ring-primary/30` pulsing to `ring-primary/50`
-- **Text**: White (`text-foreground`) for title, muted for details
-
-### Motion Sequence (1200ms total)
-
-1. **0-200ms**: Overlay fades in (`opacity: 0 -> 1`), checkmark scales in (`scale: 0 -> 1.15`) with `cubic-bezier(0.34, 1.56, 0.64, 1)` (spring overshoot)
-2. **200-400ms**: Checkmark settles (`scale: 1.15 -> 1.0`) with `ease-out`
-3. **400-800ms**: Glow ring pulses once (opacity pulse)
-4. **800-1200ms**: Hold, then auto-close modal
-
-### Accessibility
-
-- **Reduced motion**: Skip scale/glow animations; show static checkmark for 600ms then close
-- **Screen reader**: Announce "Order executed" via `aria-live="polite"`
-- **Focus management**: Keep focus trapped in modal until closed
-
----
-
-## Implementation Approach
-
-### 1. Add Trade Status State
+#### 2. Import highlightMatch from searchAssets (new import)
 
 ```typescript
-type TradeStatus = 'idle' | 'executing' | 'success' | 'error';
-const [tradeStatus, setTradeStatus] = useState<TradeStatus>('idle');
+import { highlightMatch } from '@/lib/searchAssets';
 ```
 
-### 2. Create Success Overlay Component
-
-New internal component `TradeSuccessOverlay` rendered conditionally when `tradeStatus === 'success'`:
+#### 3. Add savedScrollPositionRef (near other refs, around line 820)
 
 ```typescript
-function TradeSuccessOverlay({
-  tradeType,
-  symbol,
-  shares,
-  onComplete
-}: {
-  tradeType: 'buy' | 'sell';
-  symbol: string;
-  shares: number;
-  onComplete: () => void;
-}) {
-  // Check for reduced motion preference
-  const prefersReducedMotion = useReducedMotion();
-  
-  useEffect(() => {
-    const timer = setTimeout(onComplete, prefersReducedMotion ? 600 : 1200);
-    return () => clearTimeout(timer);
-  }, [onComplete, prefersReducedMotion]);
-  
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center bg-card/95 backdrop-blur-sm z-20">
-      <div className={cn(
-        "flex flex-col items-center",
-        !prefersReducedMotion && "animate-success-enter"
-      )}>
-        {/* Checkmark with glow */}
-        <div className={cn(
-          "w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center",
-          !prefersReducedMotion && "animate-success-glow"
-        )}>
-          <Check className="w-8 h-8 text-primary" />
-        </div>
-        
-        {/* Text */}
-        <p className="text-lg font-semibold mt-4">Order Executed</p>
-        <p className="text-sm text-muted-foreground mt-1">
-          {tradeType === 'buy' ? 'Bought' : 'Sold'} {formatShares(shares)} shares of {symbol}
-        </p>
-      </div>
-    </div>
-  );
-}
+const savedScrollPositionRef = useRef<number>(0);
 ```
 
-### 3. Add Reduced Motion Hook
+#### 4. Add resultsContainerRef for scroll position tracking (if not already present)
 
 ```typescript
-function useReducedMotion(): boolean {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-  
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(mediaQuery.matches);
-    
-    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
-  }, []);
-  
-  return prefersReducedMotion;
-}
+const resultsContainerRef = useRef<HTMLDivElement>(null);
 ```
 
-### 4. Add CSS Keyframes to index.css
-
-```css
-@keyframes successEnter {
-  0% {
-    opacity: 0;
-    transform: scale(0);
-  }
-  50% {
-    transform: scale(1.15);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes successGlow {
-  0%, 100% {
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
-  }
-  50% {
-    box-shadow: 0 0 0 8px hsl(var(--primary) / 0.2);
-  }
-}
-
-.animate-success-enter {
-  animation: successEnter 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-.animate-success-glow {
-  animation: successGlow 0.8s ease-in-out 0.4s;
-}
-```
-
-### 5. Modify handleConfirmTrade Flow
+#### 5. Add handleBackToSearch function (after handleSuccessComplete, around line 1163)
 
 ```typescript
-// Line 1079: After all DB operations succeed
-setTradeStatus('success');
-// Remove immediate onClose() and onTradeComplete() calls
-
-// Move them to success overlay's onComplete callback:
-const handleSuccessComplete = useCallback(() => {
-  setTradeStatus('idle');
-  onTradeComplete();
-  onClose();
-}, [onTradeComplete, onClose]);
+const handleBackToSearch = useCallback(() => {
+  // Clear asset-specific data
+  setQuote(null);
+  setFundamentals(null);
+  setProfile(null);
+  setSelectedQuote(null);
+  setShares('');
+  setDollarAmount('');
+  setError('');
+  lastFetchedSymbol.current = null;
+  
+  // Clear quote refresh interval
+  if (quoteRefreshRef.current) {
+    clearInterval(quoteRefreshRef.current);
+    quoteRefreshRef.current = null;
+  }
+  
+  // Go back to search
+  setStep('search');
+  
+  // Restore scroll position after render
+  requestAnimationFrame(() => {
+    if (resultsContainerRef.current) {
+      resultsContainerRef.current.scrollTop = savedScrollPositionRef.current;
+    }
+  });
+}, []);
 ```
 
-### 6. Render Success Overlay in Modal
+#### 6. Save scroll position in handleSelectSymbol (before setStep('details'))
 
-Add inside the modal container, positioned absolutely:
+Add before transitioning to details step:
+```typescript
+if (resultsContainerRef.current) {
+  savedScrollPositionRef.current = resultsContainerRef.current.scrollTop;
+}
+```
 
+#### 7. Update header to include Back button (lines 1193-1202)
+
+Replace current header with:
 ```tsx
-{tradeStatus === 'success' && (
-  <TradeSuccessOverlay
-    tradeType={tradeType}
-    symbol={displaySymbol}
-    shares={effectiveShares}
-    onComplete={handleSuccessComplete}
-  />
-)}
+<div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
+  <div className="flex items-center gap-2">
+    {step === 'details' && (
+      <button
+        onClick={handleBackToSearch}
+        className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
+        aria-label="Back to search"
+      >
+        <ChevronLeft className="w-5 h-5" />
+      </button>
+    )}
+    <h2 className="text-lg font-bold">
+      {step === 'search' && 'Search Asset'}
+      {step === 'details' && 'Trade'}
+      {step === 'confirm' && 'Confirm Order'}
+    </h2>
+  </div>
+  <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors">
+    <X className="w-5 h-5" />
+  </button>
+</div>
+```
+
+#### 8. Add ref to search results container (line 1215)
+
+Change:
+```tsx
+<div className="space-y-1 max-h-[300px] overflow-y-auto">
+```
+To:
+```tsx
+<div ref={resultsContainerRef} className="space-y-1 max-h-[300px] overflow-y-auto">
+```
+
+#### 9. Add highlighting to search results (lines 1218-1221)
+
+Change the symbol display from:
+```tsx
+<p className="font-semibold text-primary">{result.symbol}</p>
+```
+To:
+```tsx
+<p className="font-semibold text-primary">
+  {highlightMatch(result.symbol, searchQuery).map((segment, i) => (
+    segment.highlighted ? (
+      <span key={i} className="bg-primary/20 rounded">{segment.text}</span>
+    ) : (
+      <span key={i}>{segment.text}</span>
+    )
+  ))}
+</p>
+```
+
+Change the name display from:
+```tsx
+<p className="text-sm text-muted-foreground truncate max-w-[200px]">
+  {result.name}
+</p>
+```
+To:
+```tsx
+<p className="text-sm text-muted-foreground truncate max-w-[200px]">
+  {highlightMatch(result.name, searchQuery).map((segment, i) => (
+    segment.highlighted ? (
+      <span key={i} className="text-foreground font-medium">{segment.text}</span>
+    ) : (
+      <span key={i}>{segment.text}</span>
+    )
+  ))}
+</p>
 ```
 
 ---
 
-## Edge Cases
+## Summary of Line Changes
 
-| Scenario | Handling |
-|----------|----------|
-| **User closes modal mid-animation** | Allow close via X button; cleanup timer, call `onTradeComplete()` |
-| **Very fast execution** | Animation still plays for full duration (1200ms) - feels intentional |
-| **Error after partial writes** | `tradeStatus` stays 'executing', error state shows, no success animation |
-| **Retry after error** | User fixes input and retries; success animation plays on successful retry |
-| **Rapid consecutive trades** | Each trade is independent; modal closes after success, user reopens for next trade |
-| **Reduced motion preference** | Static checkmark, shorter duration (600ms), no scale/glow animations |
-
----
-
-## Copy & Tone
-
-| Element | Text |
-|---------|------|
-| **Title** | "Order Executed" (confident, factual) |
-| **Detail - Buy** | "Bought {shares} shares of {SYMBOL}" |
-| **Detail - Sell** | "Sold {shares} shares of {SYMBOL}" |
-
-The copy is:
-- Minimal (not verbose like "Congratulations! Your order has been...")
-- Factual (confirms what happened)
-- Beginner-friendly (uses "shares" not "units")
+| Location | Change |
+|----------|--------|
+| Line 2 | Add `ChevronLeft` to lucide-react imports |
+| After line 10 | Add `import { highlightMatch } from '@/lib/searchAssets';` |
+| Around line 820 | Add `savedScrollPositionRef` and `resultsContainerRef` refs |
+| Around line 990 | Save scroll position in `handleSelectSymbol` before step change |
+| After line 1162 | Add `handleBackToSearch` callback function |
+| Lines 1193-1202 | Update header with back button |
+| Line 1215 | Add `ref={resultsContainerRef}` to results container |
+| Lines 1218-1221 | Use `highlightMatch()` for symbol and name display |
 
 ---
 
-## Files to Modify
+## No Other Changes
 
-| File | Changes |
-|------|---------|
-| `src/components/TradeModal.tsx` | Add `TradeSuccessOverlay` component, `tradeStatus` state, `useReducedMotion` hook, modify `handleConfirmTrade` flow |
-| `src/index.css` | Add `successEnter` and `successGlow` keyframes and utility classes |
-| `src/lib/portfolio.ts` | Already has `formatShares` - no changes needed |
-
----
-
-## Technical Summary
-
-1. Add `tradeStatus: 'idle' | 'executing' | 'success' | 'error'` state
-2. On successful trade, set `tradeStatus = 'success'` instead of immediately closing
-3. Render `TradeSuccessOverlay` when status is 'success'
-4. Overlay auto-closes after 1200ms (600ms for reduced motion)
-5. `onComplete` callback resets status and calls `onTradeComplete()` + `onClose()`
-6. CSS-only animations (no external library needed)
-7. Respects `prefers-reduced-motion` media query
+This plan only restores the two missing features. All other functionality remains unchanged:
+- Trade execution flow
+- Success animation
+- Search filtering logic
+- Suggested assets display
+- Modal close behavior
 
