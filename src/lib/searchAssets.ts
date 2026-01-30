@@ -29,14 +29,14 @@ let rateLimitedUntil = 0;
 /**
  * Normalize text for search matching
  * - Lowercase
- * - Remove punctuation (., &, ', -)
+ * - Remove punctuation (., &, ', -, ,, /)
  * - Collapse multiple spaces to single space
  * - Trim whitespace
  */
 function normalizeForSearch(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[.&'\-]/g, '')     // Remove common punctuation
+    .replace(/[.&'\-,/]/g, '')   // Remove common punctuation including , and /
     .replace(/\s+/g, ' ')        // Collapse spaces
     .trim();
 }
