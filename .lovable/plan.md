@@ -1,255 +1,359 @@
 
 
-# Free-Tier Chart Solution: Self-Recorded Portfolio Snapshots
+# N00B Portfolios: Smart Ticker Search Upgrade
 
-## Overview
+## Feature Goal (Restated)
 
-This plan replaces the broken Finnhub historical data approach with a self-recorded snapshot system. The chart will display "Your invested value over time since you started" based on snapshots stored in our database, not external historical price APIs.
+Upgrade the "Search Ticker" flow in the Trade Modal so users can find assets by **both ticker symbol AND company/fund name** (e.g., typing "apple" returns AAPL, typing "vanguard s&p" returns VOO).
 
-## Current State Analysis
+**Where it's used:** The Trade Modal, accessed via the "Trade" button on any portfolio detail page, and from the Holdings table "view asset" action.
 
-### Existing Infrastructure
-- **`value_history` table**: Already exists with columns `id`, `portfolio_id`, `value`, `recorded_at`. Currently stores total portfolio value (cash + holdings).
-- **Trade execution**: Already records a snapshot after each trade in `TradeModal.tsx` (lines 663-691).
-- **Chart system**: `usePortfolioChart` hook + `InteractivePortfolioChart` component currently try to build series from Finnhub historical candles, which fail on free tier.
+**Who uses it:** Beginner investors who may not know ticker symbols but recognize company names like "Apple" or "Microsoft."
 
-### Problem
-- Finnhub free tier returns 403 Forbidden for historical candle data
-- Current fallback shows a flat line with $0 change and "Historical data unavailable" message
-- No periodic snapshot recording exists (only on trades)
+**Success criteria:**
+- Search by ticker (exact and partial): `VOO`, `AA` → shows AAPL, AAL, etc.
+- Search by name: `vanguard`, `nvidia`, `apple inc`
+- Fast perceived performance (results within 300-500ms)
+- Accurate classification (stocks vs ETFs vs REITs vs bonds)
+- Mobile-friendly with touch targets and no janky loading states
+- Graceful degradation when rate-limited
 
-## Technical Implementation
+---
 
-### Phase 1: Database Schema Update
+## Current Implementation Analysis
 
-#### Extend `value_history` table to store invested value
-Add a new column `invested_value` to distinguish holdings-only value from total portfolio value:
+### What Exists Today
+1. **TradeModal.tsx** (1,445 lines) - Contains search input with 300ms debounce
+2. **market-search Edge Function** - Proxies Finnhub `/search` endpoint with 24-hour cache
+3. **Finnhub Search API** (`/api/v1/search`) - Already supports both ticker and name search
+4. **Local curated data:**
+   - `SUGGESTED_ASSETS` (14 items) - Shown when search is empty
+   - `KNOWN_ETF_SYMBOLS`, `KNOWN_BOND_SYMBOLS`, `KNOWN_REIT_SYMBOLS` - Classification overrides
+   - `ASSET_DESCRIPTIONS` - Educational content for popular assets
+   - Curated dividend data for ~100 symbols
 
-```sql
-ALTER TABLE value_history
-ADD COLUMN invested_value numeric;
-
--- Add index for efficient range queries
-CREATE INDEX idx_value_history_portfolio_recorded 
-ON value_history (portfolio_id, recorded_at DESC);
-
--- Add source column to track how snapshot was created
-ALTER TABLE value_history
-ADD COLUMN source text DEFAULT 'manual';
-```
-
-This preserves backward compatibility while enabling invested-value-only charts.
-
-### Phase 2: Snapshot Recording Logic
-
-#### 2.1 Create a reusable snapshot utility
-
-Create `src/lib/snapshotService.ts`:
-
+### Current Search Flow
 ```text
-+------------------------------------------+
-|         recordPortfolioSnapshot()        |
-+------------------------------------------+
-| Input: portfolioId                       |
-| 1. Fetch holdings from database          |
-| 2. Fetch current quotes for all symbols  |
-| 3. Compute invested_value = sum(shares   |
-|    * currentPrice)                       |
-| 4. Compute portfolio_value = invested    |
-|    + cash                                |
-| 5. Insert into value_history with        |
-|    throttle check (max 1 per 5 min)      |
-+------------------------------------------+
+User types → 300ms debounce → searchSymbolsApi() → market-search Edge Function → Finnhub /search → Filter results → Display
 ```
 
-Key behaviors:
-- Uses `fetchMultipleQuotes` from existing `finnhub.ts`
-- Throttles to max 1 snapshot per 5 minutes per portfolio
-- Stores both `value` (total) and `invested_value` (holdings only)
-- Returns silently on errors (non-blocking)
+### What's Already Working
+- Finnhub's `/search` endpoint already supports name-based queries (e.g., "apple" returns AAPL)
+- Edge function has 24-hour cache to minimize API calls
+- Asset classification logic exists for ETFs/REITs/Bonds
 
-#### 2.2 Snapshot trigger points
+### What Needs Improvement
+1. **No local-first search** - Every keystroke after debounce hits the API
+2. **No prioritization** of user's own holdings or recently searched
+3. **No fuzzy matching** for typos ("appl" doesn't match "AAPL")
+4. **Missing substring highlighting** in results
+5. **No graceful rate-limit handling** - Shows error, doesn't fall back to local
+6. **No keyboard navigation** in results list
+7. **Generic copy** - Could be more beginner-friendly
 
-| Trigger | Location | Behavior |
-|---------|----------|----------|
-| **Trade execution** | `TradeModal.tsx` | Already exists; update to use new utility and store `invested_value` |
-| **Page view** | `PortfolioDetail.tsx` | Add snapshot call in `loadPortfolioData()` with 5-min throttle |
-| **Scheduled job** | Edge function + pg_cron | Every 15 minutes during market hours (future enhancement) |
+---
 
-### Phase 3: Chart Data Source Refactor
+## Functional Requirements & Constraints
 
-#### 3.1 Update `buildInvestedValueSeries`
+### Supported Asset Types
+- Stocks (COMMON STOCK)
+- ETFs (ETP, ETF)
+- REITs
+- Bond ETFs
+- ADRs
+- *Crypto: Not currently supported (Finnhub free tier doesn't include crypto)*
 
-Refactor `src/lib/investedSeries.ts`:
+### "Available to the platform" Definition
+- **Finnhub universe**: Any US-listed security that Finnhub returns
+- We do not maintain our own internal universe beyond the curated suggestions
 
+### Finnhub Free Tier Constraints
+- **60 API calls/minute** across ALL endpoints
+- Symbol search is relatively lightweight vs quotes
+- 24-hour cache already implemented in edge function
+- Must respect rate limits to avoid 429 errors affecting quotes
+
+### Local Data Available for Leverage
+| Data Source | Items | Use Case |
+|-------------|-------|----------|
+| User's holdings | Per portfolio | Prioritize owned assets |
+| `SUGGESTED_ASSETS` | 14 | Default suggestions |
+| `KNOWN_ETF/BOND/REIT_SYMBOLS` | ~80 total | Classification |
+| `ASSET_DESCRIPTIONS` | ~35 | Educational content |
+| `KNOWN_*_DIVIDENDS` | ~80 | Dividend data |
+
+---
+
+## Implementation Options
+
+### Option A: Hybrid Search (Recommended)
+**Concept:** Local-first for popular/owned assets + Finnhub for long-tail
+
+**How it works:**
+1. Build a local catalog of ~200 popular US assets with name + ticker
+2. On keystroke, instantly filter local catalog (no debounce needed)
+3. After 350ms debounce, also query Finnhub for additional results
+4. Merge results: Local matches first, then API results (deduplicated)
+5. User's current holdings always appear at top if matched
+
+**Pros:**
+- Instant results for common queries (AAPL, VOO, MSFT)
+- Reduces API calls significantly
+- Still supports long-tail searches via Finnhub
+- Works offline for popular assets
+
+**Cons:**
+- Need to maintain local catalog (~5KB JSON)
+- Catalog needs periodic updates (quarterly is fine)
+
+### Option B: Remote-Only with Aggressive Caching
+**Concept:** Keep using Finnhub exclusively but add client-side caching
+
+**How it works:**
+1. Increase debounce to 400ms
+2. Add client-side search result cache (in-memory)
+3. Minimum 2-character query to reduce frivolous calls
+4. Show "Recent searches" when empty
+
+**Pros:**
+- Simplest implementation
+- No catalog to maintain
+
+**Cons:**
+- First search for any term is slow
+- Still API-dependent for all searches
+- Poor offline experience
+
+### Option C: Local-Only with Pre-seeded Catalog
+**Concept:** Remove Finnhub search entirely, use comprehensive local catalog
+
+**How it works:**
+1. Build catalog of ~2000 US securities
+2. Fuzzy match entirely client-side
+3. Never call search API
+
+**Pros:**
+- No API dependency
+- Instant results always
+
+**Cons:**
+- Large catalog to maintain (~50KB)
+- Missing obscure securities
+- Catalog staleness issues
+
+### Recommendation: Option A (Hybrid)
+Best balance of speed, reliability, and coverage for a beginner-focused app.
+
+---
+
+## Detailed UI/UX Behavior
+
+### Input States
+
+| State | Visual | Behavior |
+|-------|--------|----------|
+| Empty | Placeholder text + Suggested Assets grid | Show curated categories |
+| Typing (< 1 char) | Show helper text | "Keep typing to search" |
+| Typing (debouncing) | Subtle loading indicator | Local results show immediately, spinner in corner |
+| Loading API | Spinner in input | Show local results while waiting |
+| Has results | Results list | Grouped by type |
+| No results | Empty state | Friendly message + suggestions |
+| Rate limited | Soft warning | Show local results only |
+| Error | Error state | Retry option + local results |
+
+### Debounce Strategy
+- **Local search:** Immediate (0ms) - filter local catalog on every keystroke
+- **API search:** 350ms debounce - only call Finnhub after user stops typing
+- **Minimum query length:** 1 character for local, 2 for API
+
+### Results Grouping
 ```text
-OLD FLOW:
-  portfolioId + range
-       |
-       v
-  Load holdings from DB
-       |
-       v
-  Fetch historical prices from Finnhub (FAILS)
-       |
-       v
-  Build time series
-
-NEW FLOW:
-  portfolioId + range
-       |
-       v
-  Query value_history WHERE recorded_at >= rangeStart
-       |
-       v
-  Map to [{timestamp, investedValue}]
-       |
-       v
-  If only 1 point, duplicate for $0 change
-       |
-       v
-  Return series + hasHistory flag
+┌─────────────────────────────────────────────┐
+│ 🔍 "vanguard"                            ⏳ │
+├─────────────────────────────────────────────┤
+│ YOUR HOLDINGS                               │
+│ ┌─────────────────────────────────────────┐ │
+│ │ VOO    Vanguard S&P 500 ETF        ETF │ │
+│ └─────────────────────────────────────────┘ │
+│                                             │
+│ INDEX FUNDS                                 │
+│ ┌─────────────────────────────────────────┐ │
+│ │ VTI    Vanguard Total Stock ETF    ETF │ │
+│ │ VIG    Vanguard Dividend Apprec.   ETF │ │
+│ └─────────────────────────────────────────┘ │
+│                                             │
+│ MORE RESULTS                                │
+│ ┌─────────────────────────────────────────┐ │
+│ │ VNQ    Vanguard Real Estate        REIT│ │
+│ │ VYM    Vanguard High Dividend      ETF │ │
+│ └─────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
 ```
 
-Key changes:
-- Reads from `value_history` table instead of Finnhub
-- Falls back to current quote if no history exists
-- Sets `hasHistory: true` when 2+ points exist
-- No external API dependency for the chart
+### Keyboard Navigation
+- `↓` / `↑` arrows to navigate results
+- `Enter` to select highlighted result
+- `Escape` to clear search and close modal
 
-#### 3.2 Update `usePortfolioChart` hook
+### Substring Highlighting
+Match portions of ticker and name will be **bolded**:
+- Query: "appl"
+- Result: **APPL**E Inc. / **Appl**e Inc.
 
-Minimal changes needed:
-- Already consumes `buildInvestedValueSeries`
-- `hasHistory` flag already controls UI messaging
-- Add `refetchOnFocus` behavior to pick up new snapshots
+### Mobile Considerations
+- Touch target minimum: 44px height
+- Sticky search input at top during scroll
+- Virtual keyboard awareness (modal adjusts)
+- Swipe to dismiss modal
 
-### Phase 4: UI Updates
+---
 
-#### 4.1 Update helper text in `InteractivePortfolioChart.tsx`
+## Data Model & Search Algorithm
 
-Replace:
-```
-"Historical price data unavailable. Showing current invested value."
-```
-
-With:
-```
-"Chart shows your portfolio value since you started. History grows as you use the app."
-```
-
-#### 4.2 Time range tab behavior
-
-For ranges without sufficient data:
-- Show available points (may be sparse)
-- Add subtle note: "More data will appear as you use the app"
-- Never disable tabs (always show something)
-
-### Phase 5: Scheduled Snapshot Job (Optional Enhancement)
-
-Create edge function `record-portfolio-snapshots/index.ts`:
-- Called by pg_cron every 15 minutes
-- Fetches all active portfolios (with holdings)
-- Records snapshot for each using service role
-- Respects throttle per portfolio
-
-This ensures chart continuity even if user doesn't visit the page.
-
-## File Changes Summary
-
-| File | Action | Description |
-|------|--------|-------------|
-| `supabase/migrations/xxx.sql` | Create | Add `invested_value` and `source` columns, add index |
-| `src/lib/snapshotService.ts` | Create | Reusable snapshot recording utility |
-| `src/lib/investedSeries.ts` | Update | Read from value_history instead of Finnhub |
-| `src/components/TradeModal.tsx` | Update | Use snapshot service, record invested_value |
-| `src/pages/PortfolioDetail.tsx` | Update | Record snapshot on page load (throttled) |
-| `src/components/InteractivePortfolioChart.tsx` | Update | Change helper text |
-| `src/hooks/usePortfolioChart.ts` | Minor | Adjust loading states |
-| `supabase/functions/record-snapshots/index.ts` | Create (optional) | Scheduled snapshot job |
-| `src/lib/finnhub-history.ts` | Delete | No longer needed |
-
-## Data Flow Diagram
-
-```text
-User opens portfolio page
-        |
-        v
-  PortfolioDetail.tsx
-        |
-        +---> recordPortfolioSnapshot(portfolioId)
-        |            |
-        |            v
-        |     Fetch current quotes
-        |            |
-        |            v
-        |     Compute invested_value
-        |            |
-        |            v
-        |     INSERT into value_history
-        |            (if >5 min since last)
-        |
-        +---> usePortfolioChart(portfolioId)
-                     |
-                     v
-              buildInvestedValueSeries()
-                     |
-                     v
-              SELECT from value_history
-              WHERE portfolio_id = ?
-              AND recorded_at >= rangeStart
-                     |
-                     v
-              Return [{timestamp, investedValue}]
-                     |
-                     v
-              Render chart + header
-```
-
-## Acceptance Criteria
-
-1. Chart displays recorded snapshot data, not Finnhub historical candles
-2. Header values (value, +$, +%) are derived from snapshot series start/end
-3. Hover values show invested_value at that snapshot timestamp
-4. New snapshot recorded on each trade and page view (throttled)
-5. If only 1 snapshot exists, show $0 change and "—%"
-6. Message reads "Chart shows your portfolio value since you started..."
-7. Works for all users and all portfolio compositions
-8. Never uses single-holding values for aggregate calculations
-
-## Testing Strategy
-
-1. **Fresh portfolio**: Create new portfolio, buy asset, verify first snapshot appears
-2. **Multiple trades**: Execute multiple trades, verify chart shows change over time
-3. **Page refresh**: Return to page, verify new snapshot recorded (after throttle)
-4. **Time ranges**: Switch between 1D/1W/1M, verify correct filtering
-5. **Hover**: Scrub across chart, verify header updates with snapshot values
-6. **Empty portfolio**: Verify graceful handling when no holdings exist
-
-## Technical Notes
-
-### Throttle Logic
+### Local Asset Catalog Structure
 ```typescript
-const SNAPSHOT_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
-
-async function shouldRecordSnapshot(portfolioId: string): Promise<boolean> {
-  const { data } = await supabase
-    .from('value_history')
-    .select('recorded_at')
-    .eq('portfolio_id', portfolioId)
-    .order('recorded_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-    
-  if (!data) return true;
-  
-  const lastRecorded = new Date(data.recorded_at).getTime();
-  return Date.now() - lastRecorded > SNAPSHOT_THROTTLE_MS;
+interface LocalAsset {
+  symbol: string;           // "VOO"
+  name: string;             // "Vanguard S&P 500 ETF"
+  normalizedName: string;   // "vanguard s&p 500 etf" (pre-computed)
+  normalizedSymbol: string; // "voo" (pre-computed)
+  type: string;             // "ETF"
+  assetClass: AssetClass;   // "etf"
+  category?: string;        // "Index Fund" (for grouping)
+  popularity?: number;      // 1-100 (for ranking)
 }
 ```
 
-### Backward Compatibility
-- Existing `value_history` rows have `invested_value = NULL`
-- For old rows, approximate invested_value as `value - cash_at_time` if possible, or skip
-- New rows always have both columns populated
+### Search Algorithm (Ranking Order)
+
+| Priority | Match Type | Example Query | Example Match |
+|----------|-----------|---------------|---------------|
+| 1 | User holding (exact) | "VOO" | VOO in portfolio |
+| 2 | Ticker exact | "AAPL" | AAPL |
+| 3 | Ticker prefix | "AA" | AAPL, AAL |
+| 4 | Name prefix | "Apple" | Apple Inc. |
+| 5 | Name contains | "bank" | JPMorgan Chase & Co. |
+| 6 | Fuzzy (1 edit) | "appl" | AAPL |
+| 7 | API results | anything | Finnhub results |
+
+### Deduplication Strategy
+- Use `symbol` as unique key
+- When merging local + API results:
+  1. Build Set of local result symbols
+  2. Filter API results to exclude duplicates
+  3. Preserve local ranking (appears first)
+
+### Fuzzy Matching (Lightweight)
+Use simple Levenshtein distance with threshold of 1-2 edits:
+- "appl" → "aapl" (1 deletion)
+- "micrsoft" → "microsoft" (1 insertion)
+
+Only apply fuzzy to local catalog (too expensive for API).
+
+---
+
+## Finnhub Integration Details
+
+### Endpoints Used
+- `/api/v1/search?q={query}` - Symbol/name search (already implemented)
+
+### Rate Limit Mitigation
+| Technique | Implementation |
+|-----------|----------------|
+| Debounce | 350ms before API call |
+| Min query length | 2 characters for API |
+| Request cancellation | AbortController for stale requests |
+| 24h server cache | Already in edge function |
+| 5min client cache | New: cache search results in memory |
+| Local-first | Reduce API calls by 60-70% |
+
+### Caching Strategy
+```text
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│ Client Cache    │────▶│ Edge Fn Cache    │────▶│ Finnhub API     │
+│ (5 min TTL)     │     │ (24 hour TTL)    │     │                 │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+```
+
+### Rate Limit Fallback Flow
+```text
+If API returns 429:
+  1. Set rateLimitedUntil = now + 60s
+  2. Show soft warning: "Showing saved results only"
+  3. Continue showing local catalog results
+  4. After 60s, re-enable API calls
+```
+
+---
+
+## Risk Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Rate limits hit | Poor UX, no results | Local-first search, 60s backoff |
+| Slow network | Spinner forever | 5s timeout, show local results |
+| Irrelevant API results | User confusion | Ranking algorithm prioritizes exact matches |
+| Exchange confusion (AAPL vs AAPL.L) | Wrong asset | Filter non-US in edge function (already done) |
+| Missing ETFs in classification | Wrong type shown | Expand `KNOWN_ETF_SYMBOLS` list |
+| Duplicate symbols | Double entries | Dedupe by symbol before render |
+| Stale local catalog | Missing new IPOs | Quarterly catalog updates |
+| Typos not handled | No results | Fuzzy matching on local catalog |
+
+---
+
+## Microcopy & Interaction Tone
+
+### Search Input
+- **Placeholder:** `"Search stocks, ETFs, or funds..."`
+- **Helper text (subtle):** `"Try 'Apple' or 'VOO'"`
+
+### Empty State (No Query)
+- **Header:** "Popular Investments"
+- **Subtext:** "Quality picks for long-term portfolios"
+
+### No Results State
+- **Primary:** `"No matches for '{query}'"`
+- **Secondary:** `"Check the spelling or try a different term. You can also search by company name."`
+
+### Rate Limit Warning
+- **Soft banner:** `"Showing saved results. More options available in a moment."`
+- *(Not: "Rate limited! Too many requests!")*
+
+### Loading State
+- Show spinner inside input (right side)
+- Continue showing local results while loading
+
+---
+
+## Technical Implementation Summary
+
+### Files to Create
+1. `src/lib/assetCatalog.ts` - Local asset catalog (~200 popular US securities)
+2. `src/lib/searchAssets.ts` - Unified search logic (local + API merge)
+
+### Files to Modify
+1. `src/components/TradeModal.tsx` - Integrate new search, add keyboard nav, highlight matches
+2. `supabase/functions/market-search/index.ts` - Add client-side cache headers, improve error handling
+
+### New Dependencies
+None required - all features implementable with existing stack.
+
+### Estimated Effort
+- Local catalog data entry: ~2 hours
+- Search algorithm implementation: ~2 hours
+- UI enhancements (keyboard nav, highlighting): ~2 hours
+- Testing & polish: ~2 hours
+- **Total:** ~8 hours
+
+---
+
+## Success Metrics
+
+| Metric | Target |
+|--------|--------|
+| Time to first result | < 100ms (local), < 500ms (API) |
+| Search success rate | > 95% of queries return relevant results |
+| API calls reduced | 60-70% fewer than current |
+| Rate limit errors shown to user | < 1% of sessions |
+| Mobile usability score | 100% touch targets > 44px |
 
