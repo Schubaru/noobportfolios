@@ -206,10 +206,7 @@ export function formatMetricCurrency(num: number | null): string {
 const quoteCache = new Map<string, { quote: FinnhubQuote; timestamp: number }>();
 const QUOTE_CACHE_TTL = 120000; // 2 minutes cache to handle API outages
 
-// Helper to delay between requests
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Fetch multiple quotes sequentially with throttling to avoid rate limits
+// Fetch multiple quotes using batch endpoint for efficiency
 export async function fetchMultipleQuotes(symbols: string[]): Promise<Map<string, FinnhubQuote>> {
   const quotes = new Map<string, FinnhubQuote>();
   const now = Date.now();
@@ -223,25 +220,43 @@ export async function fetchMultipleQuotes(symbols: string[]): Promise<Map<string
       // Use cached quote
       quotes.set(symbol.toUpperCase(), cached.quote);
     } else {
-      symbolsToFetch.push(symbol);
+      symbolsToFetch.push(symbol.toUpperCase());
     }
   }
   
-  // Fetch remaining symbols sequentially with small delay to avoid rate limits
-  for (let i = 0; i < symbolsToFetch.length; i++) {
-    const symbol = symbolsToFetch[i];
-    
-    // Add delay between requests (except for the first one)
-    if (i > 0) {
-      await delay(200); // 200ms between requests = max 5 requests/second
+  if (symbolsToFetch.length === 0) {
+    return quotes;
+  }
+
+  try {
+    // Use batch endpoint for efficiency
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/market-quote-batch?symbols=${symbolsToFetch.join(',')}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error('Batch quote fetch failed:', response.status);
+      return quotes;
     }
+
+    const result = await response.json();
     
-    const result = await fetchQuote(symbol);
-    if (result.data) {
-      quotes.set(symbol.toUpperCase(), result.data);
-      // Cache the result
-      quoteCache.set(symbol.toUpperCase(), { quote: result.data, timestamp: now });
+    if (result.quotes) {
+      for (const [symbol, quoteData] of Object.entries(result.quotes)) {
+        const quote = quoteData as FinnhubQuote;
+        quotes.set(symbol, quote);
+        quoteCache.set(symbol, { quote, timestamp: now });
+      }
     }
+  } catch (error) {
+    console.error('Error fetching batch quotes:', error);
   }
   
   return quotes;

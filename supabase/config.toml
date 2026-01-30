@@ -3,6 +3,9 @@ project_id = "tkdybvdbpdjlnguqgxrb"
 [functions.market-quote]
 verify_jwt = false
 
+[functions.market-quote-batch]
+verify_jwt = false
+
 [functions.market-search]
 verify_jwt = false
 
