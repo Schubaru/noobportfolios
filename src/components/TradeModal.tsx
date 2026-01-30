@@ -1107,7 +1107,7 @@ const TradeModal = ({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
           <h2 className="text-lg font-bold">
-            {step === 'search' && 'Search Ticker'}
+            {step === 'search' && 'Search Asset'}
             {step === 'details' && 'Trade'}
             {step === 'confirm' && 'Confirm Order'}
           </h2>
