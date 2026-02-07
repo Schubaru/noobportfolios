@@ -189,8 +189,8 @@ const PortfolioDetail = () => {
   const handleTradeComplete = async () => {
     // Refresh portfolios from database after trade
     await fetchPortfolios();
-    // Then reload this portfolio with fresh prices
-    await loadPortfolioData();
+    // Then reload this portfolio with fresh prices (forceRefresh to bypass cache)
+    await loadPortfolioData(true);
   };
 
   if (isLoading || portfoliosLoading) {
