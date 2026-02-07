@@ -13,7 +13,7 @@ interface TradeModalProps {
   isOpen: boolean;
   onClose: () => void;
   portfolio: Portfolio;
-  onTradeComplete: () => void;
+  onTradeComplete: () => void | Promise<void>;
   initialSymbol?: string;
 }
 type TradeType = 'buy' | 'sell';
@@ -47,7 +47,7 @@ function TradeSuccessOverlay({
   tradeType: 'buy' | 'sell';
   symbol: string;
   shares: number;
-  onComplete: () => void;
+  onComplete: () => void | Promise<void>;
 }) {
   const prefersReducedMotion = useReducedMotion();
   
@@ -1188,9 +1188,10 @@ const TradeModal = ({
   };
   
   // Handle success animation completion
-  const handleSuccessComplete = useCallback(() => {
+  const handleSuccessComplete = useCallback(async () => {
     setTradeStatus('idle');
-    onTradeComplete();
+    // Trigger immediate refresh of portfolio data before closing
+    await onTradeComplete();
     onClose();
   }, [onTradeComplete, onClose]);
 
