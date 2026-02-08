@@ -3,18 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import logo from '@/assets/noobportlogo.png';
 
 const Auth = () => {
   const { user, signIn, signUp } = useAuth();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
   
   // Form states
   const [loginEmail, setLoginEmail] = useState('');
@@ -99,139 +96,117 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md glass-card">
-        <CardHeader className="text-center space-y-4">
-          <div className="flex justify-center">
-            <img src={logo} alt="N00B Portfolios" className="h-16 w-auto" />
-          </div>
-          <CardTitle className="text-2xl font-bold">N00B Portfolios</CardTitle>
-          <CardDescription>
-            Practice trading with virtual money. No risk, real learning.
-          </CardDescription>
-        </CardHeader>
+      <div className="w-full max-w-[350px] flex flex-col items-center">
+        {/* Logo container */}
+        <div className="w-20 h-20 rounded-2xl bg-card flex items-center justify-center mb-6">
+          <img src={logo} alt="N00B Portfolios" className="h-12 w-auto" />
+        </div>
         
-        <CardContent>
-          <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="login">Log In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
-            </TabsList>
+        {/* Title + tagline */}
+        <h1 className="text-2xl font-bold text-center mb-2">N00B Portfolios™</h1>
+        <p className="text-muted-foreground text-center mb-6">
+          Practice trading with virtual money. No risk, real learning.
+        </p>
+        
+        {/* Section header */}
+        <h2 className="font-semibold text-center mb-6">
+          {isLogin ? 'Sign in' : 'Create account'}
+        </h2>
+        
+        {/* Form */}
+        {isLogin ? (
+          <form onSubmit={handleSignIn} className="w-full space-y-4">
+            <Input
+              id="login-email"
+              type="email"
+              placeholder="Email address"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              required
+              autoComplete="email"
+              disabled={isLoading}
+            />
             
-            <TabsContent value="login">
-              <form onSubmit={handleSignIn} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="login-email">Email</Label>
-                  <Input
-                    id="login-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="login-password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="login-password"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="••••••••"
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      required
-                      autoComplete="current-password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Logging in...
-                    </>
-                  ) : (
-                    'Log In'
-                  )}
-                </Button>
-              </form>
-            </TabsContent>
+            <Input
+              id="login-password"
+              type="password"
+              placeholder="Password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              disabled={isLoading}
+            />
             
-            <TabsContent value="signup">
-              <form onSubmit={handleSignUp} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <Input
-                    id="signup-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={signupEmail}
-                    onChange={(e) => setSignupEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="signup-password"
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="At least 6 characters"
-                      value={signupPassword}
-                      onChange={(e) => setSignupPassword(e.target.value)}
-                      required
-                      autoComplete="new-password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="signup-confirm-password">Confirm Password</Label>
-                  <Input
-                    id="signup-confirm-password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Confirm your password"
-                    value={signupConfirmPassword}
-                    onChange={(e) => setSignupConfirmPassword(e.target.value)}
-                    required
-                    autoComplete="new-password"
-                  />
-                </div>
-                
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating account...
-                    </>
-                  ) : (
-                    'Create Account'
-                  )}
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Logging in...
+                </>
+              ) : (
+                'Login'
+              )}
+            </Button>
+          </form>
+        ) : (
+          <form onSubmit={handleSignUp} className="w-full space-y-4">
+            <Input
+              id="signup-email"
+              type="email"
+              placeholder="Email address"
+              value={signupEmail}
+              onChange={(e) => setSignupEmail(e.target.value)}
+              required
+              autoComplete="email"
+              disabled={isLoading}
+            />
+            
+            <Input
+              id="signup-password"
+              type="password"
+              placeholder="Create password"
+              value={signupPassword}
+              onChange={(e) => setSignupPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              disabled={isLoading}
+            />
+            
+            <Input
+              id="signup-confirm-password"
+              type="password"
+              placeholder="Confirm password"
+              value={signupConfirmPassword}
+              onChange={(e) => setSignupConfirmPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              disabled={isLoading}
+            />
+            
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                'Create an account'
+              )}
+            </Button>
+          </form>
+        )}
+        
+        {/* Secondary link */}
+        <button
+          type="button"
+          onClick={() => setIsLogin(!isLogin)}
+          className="text-primary mt-4 hover:underline"
+          disabled={isLoading}
+        >
+          {isLogin ? 'Create new account' : 'Sign in'}
+        </button>
+      </div>
     </div>
   );
 };
