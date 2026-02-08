@@ -120,11 +120,11 @@ export const usePortfolios = () => {
     };
   };
 
-  const fetchPortfolios = useCallback(async () => {
+  const fetchPortfolios = useCallback(async (): Promise<Portfolio[]> => {
     if (!user) {
       setPortfolios([]);
       setIsLoading(false);
-      return;
+      return [];
     }
 
     try {
@@ -139,7 +139,7 @@ export const usePortfolios = () => {
       if (!dbPortfolios || dbPortfolios.length === 0) {
         setPortfolios([]);
         setIsLoading(false);
-        return;
+        return [];
       }
 
       const portfolioIds = dbPortfolios.map(p => p.id);
@@ -174,8 +174,10 @@ export const usePortfolios = () => {
       });
 
       setPortfolios(transformed);
+      return transformed;
     } catch (error) {
       console.error('Error fetching portfolios:', error);
+      return [];
     } finally {
       setIsLoading(false);
       setHasFetched(true);

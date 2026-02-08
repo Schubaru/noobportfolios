@@ -37,11 +37,11 @@ const PortfolioDetail = () => {
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isPageVisibleRef = useRef(true);
 
-  const loadPortfolioData = useCallback(async (forceRefresh = false) => {
+  const loadPortfolioData = useCallback(async (forceRefresh = false, freshPortfolio?: Portfolio) => {
     if (!id) return;
     
-    // Get portfolio from the hook's state
-    const data = getPortfolio(id);
+    // Use fresh portfolio if provided (avoids stale closure), otherwise get from hook state
+    const data = freshPortfolio || getPortfolio(id);
     if (!data) {
       // Portfolio not found - might still be loading
       if (!portfoliosLoading) {
@@ -187,10 +187,12 @@ const PortfolioDetail = () => {
   };
 
   const handleTradeComplete = async () => {
-    // Refresh portfolios from database after trade
-    await fetchPortfolios();
-    // Then reload this portfolio with fresh prices (forceRefresh to bypass cache)
-    await loadPortfolioData(true);
+    // Refresh portfolios from database and get fresh data directly
+    const freshPortfolios = await fetchPortfolios();
+    // Find this portfolio from the fresh data to avoid stale closure
+    const freshPortfolio = freshPortfolios.find(p => p.id === id);
+    // Reload with fresh prices, passing the fresh portfolio
+    await loadPortfolioData(true, freshPortfolio);
   };
 
   if (isLoading || portfoliosLoading) {
