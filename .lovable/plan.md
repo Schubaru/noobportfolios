@@ -1,137 +1,148 @@
 
-# Immediate Post-Trade UI Refresh Fix
+# Auth Screen Layout Redesign
 
-## Problem Identified
+## Overview
 
-The current implementation has a **React state synchronization issue**:
+Updating the login and signup screens to match the reference designs, focusing purely on layout and structure changes while preserving existing typography tokens and colors.
 
-```text
-handleTradeComplete()
-    │
-    ├─► await fetchPortfolios()  ─── Updates portfolios state (async)
-    │                                 but React batches this
-    │
-    └─► await loadPortfolioData(true)
-              │
-              └─► getPortfolio(id)  ─── Reads OLD portfolios state!
-                                        (closure captured stale reference)
-```
+## Current vs Target Comparison
 
-The `getPortfolio(id)` call in `loadPortfolioData` reads from the hook's state, which hasn't re-rendered yet after `fetchPortfolios()` completes. This means:
-- Holdings table may show stale data
-- Cash/buying power may be stale
-- **Recent Transactions doesn't include the new transaction**
-
-## Solution
-
-Modify `fetchPortfolios` to **return the fresh portfolios** directly, then pass the correct portfolio to `loadPortfolioData`. This avoids the stale closure issue.
-
----
+| Element | Current Implementation | Target Design |
+|---------|----------------------|---------------|
+| Container | Card with glass effect + tabs | No card, clean centered stack |
+| Navigation | Tabs to switch login/signup | Text links below CTA button |
+| Logo | 64px height | Rounded square container (~80px) |
+| Title | "N00B Portfolios" | "N00B Portfolios™" (with trademark) |
+| Section header | None | "Sign in" / "Create account" label |
+| Password toggle | Visible eye icon in input | Hidden (remove from view) |
+| Login button text | "Log In" | "Login" |
+| Signup button text | "Create Account" | "Create an account" |
+| Secondary link | Part of tabs | Centered link below button |
 
 ## Changes Required
 
-### File: `src/hooks/usePortfolios.ts`
+### File: `src/pages/Auth.tsx`
 
-#### 1. Update `fetchPortfolios` to return the portfolios array
+#### 1. Remove Card and Tabs wrapper
 
-Change return type from `void` to `Portfolio[]`:
+Replace the Card/Tabs structure with a simple centered flex container:
+- Full viewport height, centered both axes
+- Max-width constraint (~350px based on input widths)
+- Consistent padding for mobile
 
-```typescript
-const fetchPortfolios = useCallback(async (): Promise<Portfolio[]> => {
-  if (!user) {
-    setPortfolios([]);
-    setIsLoading(false);
-    return [];
-  }
-
-  try {
-    // ... existing fetch logic ...
-    
-    setPortfolios(transformed);
-    return transformed; // Return fresh data
-  } catch (error) {
-    console.error('Error fetching portfolios:', error);
-    return []; // Return empty on error
-  } finally {
-    setIsLoading(false);
-    setHasFetched(true);
-  }
-}, [user]);
-```
-
----
-
-### File: `src/pages/PortfolioDetail.tsx`
-
-#### 2. Update `loadPortfolioData` to accept optional fresh portfolio
-
-```typescript
-const loadPortfolioData = useCallback(async (
-  forceRefresh = false,
-  freshPortfolio?: Portfolio
-) => {
-  if (!id) return;
-  
-  // Use fresh portfolio if provided, otherwise get from hook state
-  const data = freshPortfolio || getPortfolio(id);
-  if (!data) {
-    if (!portfoliosLoading) {
-      navigate('/');
-    }
-    return;
-  }
-  
-  // ... rest of function unchanged ...
-```
-
-#### 3. Update `handleTradeComplete` to use fresh data
-
-```typescript
-const handleTradeComplete = async () => {
-  // Refresh portfolios from database and get fresh data directly
-  const freshPortfolios = await fetchPortfolios();
-  
-  // Find the current portfolio from the fresh data
-  const freshPortfolio = freshPortfolios.find(p => p.id === id);
-  
-  // Reload with fresh prices, passing the fresh portfolio to avoid stale state
-  await loadPortfolioData(true, freshPortfolio);
-};
-```
-
----
-
-## Data Flow After Fix
+#### 2. Update header section
 
 ```text
-handleTradeComplete()
-    │
-    ├─► const freshPortfolios = await fetchPortfolios()
-    │       │
-    │       └─► Returns Portfolio[] directly (includes new transaction)
-    │
-    └─► await loadPortfolioData(true, freshPortfolios.find(p => p.id === id))
-              │
-              └─► Uses freshPortfolio parameter (NOT stale getPortfolio())
-                    │
-                    ├─► Fetches latest quotes for holdings
-                    ├─► Sets portfolio state (with new transaction)
-                    └─► Recalculates metrics
+[Logo in rounded container]
+        ↓ (spacing)
+"N00B Portfolios™" (title with trademark)
+        ↓ (small spacing)  
+"Practice trading..." (tagline)
+        ↓ (spacing)
+"Sign in" or "Create account" (section header)
+```
+
+#### 3. Restructure form layout
+
+**Login form:**
+- Email address input (full width)
+- Password input (full width, hide eye toggle)
+- "Login" button (cyan, full width)
+- "Create new account" link (centered, cyan text)
+
+**Signup form:**
+- Email address input
+- Create password input
+- Confirm password input
+- "Create an account" button
+- "Sign in" link
+
+#### 4. State-based view switching
+
+Replace tabs with a simple `isLogin` state boolean:
+- When `isLogin === true`: Show login form
+- When `isLogin === false`: Show signup form
+- Toggle via the text links at bottom
+
+#### 5. Input placeholder updates
+
+| Field | Current | Target |
+|-------|---------|--------|
+| Login email | "you@example.com" | "Email address" |
+| Login password | "••••••••" | "Password" |
+| Signup email | "you@example.com" | "Email address" |
+| Signup password | "At least 6 characters" | "Create password" |
+| Signup confirm | "Confirm your password" | "Confirm password" |
+
+#### 6. Hide password visibility toggle
+
+Remove the eye/eye-off button from password inputs (or hide with CSS) to match the clean input design in reference.
+
+---
+
+## Layout Structure (Simplified JSX)
+
+```text
+<div className="min-h-screen bg-background flex items-center justify-center p-4">
+  <div className="w-full max-w-[350px] flex flex-col items-center">
+    
+    {/* Logo container */}
+    <div className="w-20 h-20 rounded-2xl bg-card flex items-center justify-center mb-6">
+      <img src={logo} className="h-12 w-auto" />
+    </div>
+    
+    {/* Title + tagline */}
+    <h1 className="text-2xl font-bold text-center mb-2">N00B Portfolios™</h1>
+    <p className="text-muted-foreground text-center mb-6">
+      Practice trading with virtual money. No risk, real learning.
+    </p>
+    
+    {/* Section header */}
+    <h2 className="font-semibold text-center mb-6">
+      {isLogin ? 'Sign in' : 'Create account'}
+    </h2>
+    
+    {/* Form */}
+    <form className="w-full space-y-4">
+      {/* Inputs */}
+      {/* CTA Button */}
+    </form>
+    
+    {/* Secondary link */}
+    <button className="text-primary mt-4">
+      {isLogin ? 'Create new account' : 'Sign in'}
+    </button>
+    
+  </div>
+</div>
 ```
 
 ---
 
-## What Gets Updated Immediately
+## Spacing Details (from reference)
 
-| Component | Data Source | Updates Correctly |
-|-----------|-------------|-------------------|
-| Cash / Buying Power | `portfolio.cash` | Yes - from fresh fetch |
-| Holdings Table | `portfolio.holdings` | Yes - from fresh fetch |
-| Recent Transactions | `portfolio.transactions.slice(0, 5)` | Yes - from fresh fetch |
-| Performance Summary | `calculatePortfolioMetrics(portfolio)` | Yes - recalculated |
-| Allocation Chart | `portfolio.holdings` | Yes - from fresh fetch |
-| Avg Cost / Cost Basis | `holding.avgCost` in holdings | Yes - from fresh fetch |
-| Total Return / P&L | `metrics.unrealizedPL` | Yes - recalculated |
+- Logo to title: ~24px (mb-6)
+- Title to tagline: ~8px (mb-2)
+- Tagline to section header: ~24px (mb-6)
+- Section header to first input: ~24px (mb-6)
+- Between inputs: ~16px (space-y-4)
+- Last input to button: ~16px
+- Button to secondary link: ~16px (mt-4)
+
+---
+
+## Preserved Elements (No Changes)
+
+- All color tokens (bg-background, text-primary, text-muted-foreground, etc.)
+- Font family (Outfit)
+- Font sizes and weights (existing classes)
+- Input component styling (border, focus states)
+- Button component styling (primary variant)
+- Form validation logic
+- Auth functions (signIn, signUp)
+- Loading states and error handling
+- Navigation after successful auth
+- Redirect logic for already-authenticated users
 
 ---
 
@@ -139,33 +150,17 @@ handleTradeComplete()
 
 | Scenario | Handling |
 |----------|----------|
-| Trade fails | `onTradeComplete` never called - no refresh triggered |
-| Rapid consecutive trades | Each trade triggers own refresh; stale-state issue fixed |
-| Network error during refresh | Error logged, UI shows last known state |
-| New asset (first buy) | Holdings includes new entry from `fetchPortfolios()` |
-| Full position sold | Holding removed from list by `fetchPortfolios()` |
+| Mobile viewport | max-w-[350px] + p-4 padding keeps form comfortable |
+| Loading state | Button shows spinner, inputs disabled (unchanged) |
+| Error messages | Toast notifications continue working |
+| Form validation | All existing validation preserved |
+| Already logged in | useEffect redirect to "/" unchanged |
 
 ---
 
-## Summary of Line Changes
+## Summary of Changes
 
-| File | Location | Change |
-|------|----------|--------|
-| `usePortfolios.ts` | Lines 123-182 | Change `fetchPortfolios` return type to `Promise<Portfolio[]>` and return `transformed` |
-| `PortfolioDetail.tsx` | Line 40 | Add `freshPortfolio?: Portfolio` parameter |
-| `PortfolioDetail.tsx` | Line 44 | Use `freshPortfolio || getPortfolio(id)` |
-| `PortfolioDetail.tsx` | Lines 189-194 | Update to use returned portfolios and pass fresh data |
-
----
-
-## Acceptance Checklist
-
-After implementation:
-
-- **Buy trade**: Holdings shares increase, cash decreases, new transaction appears at top of Recent Transactions immediately
-- **Sell trade**: Holdings decrease (or removed if zero), cash increases, new transaction appears at top
-- **No page reload** required
-- **No duplicate transactions** in the list
-- **Metrics update** instantly (allocation chart, P&L, cost basis)
-- **Auto-refresh** continues working normally after trade
-- **Manual refresh button** still works
+1. **Remove**: Card wrapper, Tabs component, Label components, password visibility toggle
+2. **Add**: Rounded logo container, section header ("Sign in"/"Create account"), trademark symbol
+3. **Change**: Tab navigation → text link toggle, placeholder text, button labels
+4. **Preserve**: All auth logic, validation, error handling, colors, fonts
