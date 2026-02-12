@@ -1,122 +1,126 @@
 
-# Robinhood-Style Portfolio Layout
+
+# Inline Time Range Controls with Unified Gain/Loss
 
 ## Overview
 
-Restructure the portfolio detail page to match Robinhood's visual hierarchy: the "Investing" value and all-time change pill sit at the top, followed immediately by the chart (no card border, no title), then a labeled "Portfolio position" section containing the metric tiles.
+Lift the time range state out of the chart and into the parent, so a single set of range buttons controls both the gain/loss indicator under "INVESTING" and the chart data filtering.
 
 ## Changes
 
-### 1. Modify: `src/components/PerformanceSummary.tsx`
+### 1. Modify: `src/components/PortfolioGrowthChart.tsx`
 
-Split this component into two parts:
+**Externalize range state**
+- Accept `selectedRange` and `onRangeChange` as props instead of managing state internally
+- Remove the `availableRanges` computation and range button rendering from this component
+- Export the `TimeRange` type and `RANGE_MS` constant for use by siblings
+- Keep all chart rendering, hover logic, animation, and stale-while-revalidate behavior unchanged
 
-**Part A -- `PerformanceHeader`** (new export from same file): Renders only the top "Investing" section:
-- "INVESTING" label
-- Large holdings value
-- All-time change pill with percentage
-- "No investments yet" empty state
-- No card wrapper (no `glass-card`) -- just raw content so it flows into the chart
+**Expose filtered snapshot data for gain/loss calculation**
+- Add a new prop: `onDataReady?: (snapshots: SnapshotRow[]) => void`
+- Call it whenever `validSnapshots` changes (the full unfiltered set), so the parent can compute range-specific gain/loss from the raw data
 
-**Part B -- `PerformanceDetails`** (new export from same file): Renders the breakdown tiles under a "Portfolio position" heading:
-- Section title: `<h2 className="text-lg font-semibold mb-4">Portfolio position</h2>`
-- The 2x2/4-col grid: Total invested, Cash, Gain/Loss, Today
-- The footer row: Buying Power, Realized P/L, Dividends
-- Wrapped in `glass-card p-6`
+### 2. Modify: `src/components/PerformanceSummary.tsx`
 
-Keep the existing `PerformanceSummary` default export for backward compatibility (renders both parts together), but export the two sub-components for use in `PortfolioDetail`.
+**PerformanceHeader changes**
+- Accept new props: `selectedRange`, `onRangeChange`, `availableRanges`, `rangeGain`, `rangeGainPercent`
+- Replace the hardcoded "all-time" gain/loss pill with a dynamic one driven by `rangeGain` / `rangeGainPercent`
+- Render the time range buttons inline, right-aligned on the same row as the gain/loss pill
+- Replace the "all-time" label with the selected range label (e.g., "today", "past week", "past month", "all-time")
+- Active button uses `variant="default"`, others use `variant="ghost"` (existing Button component)
 
-### 2. Modify: `src/components/PortfolioGrowthChart.tsx`
-
-Remove chart chrome:
-- Remove the `glass-card p-6` wrapper div -- the chart will be placed inside the parent's card
-- Remove the "Portfolio Growth" `<h2>` title and subtitle `<p>`
-- Remove `YAxis` component entirely (no Y-axis labels/ticks)
-- Keep the time range buttons, but move them to a standalone row above the chart area
-- Keep tooltip, area fill, trade dots, hover handlers, animation
-- Adjust left margin from 10 to 0 since there's no Y-axis
-- Export `onMouseEnter`/`onMouseLeave` props or keep them on the outer div
+**Layout structure:**
+```
+INVESTING
+$X,XXX.XX
+[Gain/Loss pill + range label]   [1D  1W  1M  ALL]
+```
 
 ### 3. Modify: `src/pages/PortfolioDetail.tsx`
 
-Restructure the layout order:
-
-```text
-[Nav header + back button + trade button]
-
-[glass-card]
-  PerformanceHeader (INVESTING + change pill)
-  [time range buttons]
-  PortfolioGrowthChart (no card, no title, no Y-axis)
-[/glass-card]
-
-[Portfolio position section]
-  <h2>Portfolio position</h2>
-  PerformanceDetails (tiles + footer row)
-
-[Holdings & Allocation grid]
-[Recent Transactions]
-```
-
-- Wrap `PerformanceHeader` and `PortfolioGrowthChart` together in a single `glass-card p-6` div
-- Replace the old `<PerformanceSummary>` with the two new sub-components placed in their respective positions
-- The chart's hover handlers attach to the shared card container
+**Lift state up**
+- Add `selectedRange` state (default `'1D'`)
+- Add `chartSnapshots` state to receive raw snapshot data from chart's `onDataReady`
+- Compute `availableRanges` based on `portfolio.createdAt`
+- Compute `rangeGain` and `rangeGainPercent` from `chartSnapshots`:
+  - ALL: current invested value minus cost basis (from metrics, same as before)
+  - 1D: current invested P/L minus first snapshot of today's invested P/L
+  - 1W: current invested P/L minus snapshot from 7 days ago
+  - 1M: current invested P/L minus snapshot from 30 days ago
+  - Baseline for percentage: the comparison snapshot's invested value
+  - If no snapshot at exact boundary, use nearest earlier snapshot
+- Pass `selectedRange`, `onRangeChange`, `availableRanges`, `rangeGain`, `rangeGainPercent` to `PerformanceHeader`
+- Pass `selectedRange` and `onRangeChange` to `PortfolioGrowthChart`
 
 ## Technical Details
 
-### PerformanceHeader component
+### Range gain/loss calculation
 
 ```typescript
-export const PerformanceHeader = ({ metrics, cash, startingCash }: PerformanceSummaryProps) => {
-  // Renders only lines 21-41 of current PerformanceSummary:
-  // - "INVESTING" label
-  // - Large value
-  // - All-time change pill
-  // No wrapping card div
-};
+function computeRangeGain(
+  snapshots: SnapshotRow[],
+  range: TimeRange,
+  currentInvestedValue: number,
+  costBasis: number
+): { gain: number; percent: number } {
+  if (range === 'ALL') {
+    const gain = currentInvestedValue - costBasis;
+    const pct = costBasis > 0 ? gain / costBasis : 0;
+    return { gain, percent: pct };
+  }
+
+  const cutoff = Date.now() - RANGE_MS[range];
+  // Find nearest snapshot at or before cutoff
+  const baseline = snapshots
+    .filter(s => s.timestamp <= cutoff && s.investedValue != null && s.costBasis != null)
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+  if (!baseline) {
+    // Fall back to earliest snapshot
+    const earliest = snapshots.find(s => s.investedValue != null);
+    if (!earliest) return { gain: 0, percent: 0 };
+    const baselinePL = (earliest.investedValue ?? 0) - (earliest.costBasis ?? 0);
+    const currentPL = currentInvestedValue - costBasis;
+    const gain = currentPL - baselinePL;
+    const baseVal = earliest.investedValue ?? 1;
+    return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
+  }
+
+  const baselinePL = (baseline.investedValue ?? 0) - (baseline.costBasis ?? 0);
+  const currentPL = currentInvestedValue - costBasis;
+  const gain = currentPL - baselinePL;
+  const baseVal = baseline.investedValue ?? 1;
+  return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
+}
 ```
 
-### PerformanceDetails component
+### Available ranges logic (moved from chart to parent)
 
 ```typescript
-export const PerformanceDetails = ({ metrics, cash, startingCash }: PerformanceSummaryProps) => {
-  // Renders the grid (lines 44-87) and footer (lines 90-108)
-  // Wrapped in glass-card with "Portfolio position" heading
-};
+const availableRanges = useMemo((): TimeRange[] => {
+  const ageDays = (Date.now() - portfolio.createdAt) / (24 * 60 * 60 * 1000);
+  const ranges: TimeRange[] = ['1D'];
+  if (ageDays >= 2) ranges.push('1W');
+  if (ageDays >= 7) ranges.push('1M');
+  ranges.push('ALL');
+  return ranges;
+}, [portfolio.createdAt]);
 ```
 
-### PortfolioGrowthChart changes
+### Range label mapping
 
-- Remove outer `glass-card p-6` div -- replace with plain `<div>` for hover handlers
-- Delete `<h2>Portfolio Growth</h2>` and subtitle `<p>`
-- Delete entire `<YAxis ... />` element
-- Update `AreaChart` margin to `{ top: 5, right: 10, left: 0, bottom: 0 }`
-- Keep time range buttons row (renders above the chart area within the component)
-
-### PortfolioDetail layout
-
-```tsx
-{/* Hero: Investing value + Chart */}
-<div className="glass-card p-6 mb-6">
-  <PerformanceHeader metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
-  <PortfolioGrowthChart
-    portfolioId={portfolio.id}
-    portfolioCreatedAt={portfolio.createdAt}
-    snapshotKey={snapshotKey}
-    currentUnrealizedPL={metrics.unrealizedPL}
-  />
-</div>
-
-{/* Portfolio position */}
-<div className="mb-6">
-  <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
-</div>
-```
+| Range | Label |
+|-------|-------|
+| 1D | today |
+| 1W | past week |
+| 1M | past month |
+| ALL | all-time |
 
 ## Files Summary
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/components/PerformanceSummary.tsx` | Modify | Split into PerformanceHeader + PerformanceDetails exports |
-| `src/components/PortfolioGrowthChart.tsx` | Modify | Remove title, subtitle, Y-axis, card wrapper |
-| `src/pages/PortfolioDetail.tsx` | Modify | Restructure layout order |
+| `src/components/PortfolioGrowthChart.tsx` | Modify | Externalize range state, expose snapshot data via callback, remove range buttons |
+| `src/components/PerformanceSummary.tsx` | Modify | Add inline range buttons and dynamic gain/loss to PerformanceHeader |
+| `src/pages/PortfolioDetail.tsx` | Modify | Lift range state, compute range gain/loss, wire props |
+
