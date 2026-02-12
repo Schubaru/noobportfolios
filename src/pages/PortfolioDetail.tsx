@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Trash2, ArrowRightLeft, Clock } from 'lucide-react';
 import Header from '@/components/Header';
@@ -9,15 +9,53 @@ import AllocationChart from '@/components/AllocationChart';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
-import PortfolioGrowthChart from '@/components/PortfolioGrowthChart';
+import PortfolioGrowthChart, { TimeRange, RANGE_MS } from '@/components/PortfolioGrowthChart';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
-import { capturePortfolioSnapshot, getLastSnapshotAge } from '@/lib/snapshots';
+import { capturePortfolioSnapshot, getLastSnapshotAge, SnapshotRow } from '@/lib/snapshots';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
 
 const REFRESH_INTERVAL_MS = 8000;
+
+function computeRangeGain(
+  snapshots: SnapshotRow[],
+  range: TimeRange,
+  currentInvestedValue: number,
+  costBasis: number
+): { gain: number; percent: number } {
+  if (range === 'ALL') {
+    const gain = currentInvestedValue - costBasis;
+    const pct = costBasis > 0 ? gain / costBasis : 0;
+    return { gain, percent: pct };
+  }
+
+  const cutoff = Date.now() - RANGE_MS[range];
+  const candidates = snapshots
+    .filter(s => s.timestamp <= cutoff && s.investedValue != null && s.costBasis != null)
+    .sort((a, b) => b.timestamp - a.timestamp);
+
+  const baseline = candidates[0];
+
+  if (!baseline) {
+    // Fall back to earliest snapshot
+    const sorted = [...snapshots].filter(s => s.investedValue != null).sort((a, b) => a.timestamp - b.timestamp);
+    const earliest = sorted[0];
+    if (!earliest) return { gain: 0, percent: 0 };
+    const baselinePL = (earliest.investedValue ?? 0) - (earliest.costBasis ?? 0);
+    const currentPL = currentInvestedValue - costBasis;
+    const gain = currentPL - baselinePL;
+    const baseVal = earliest.investedValue ?? 1;
+    return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
+  }
+
+  const baselinePL = (baseline.investedValue ?? 0) - (baseline.costBasis ?? 0);
+  const currentPL = currentInvestedValue - costBasis;
+  const gain = currentPL - baselinePL;
+  const baseVal = baseline.investedValue ?? 1;
+  return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
+}
 
 const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -38,8 +76,32 @@ const PortfolioDetail = () => {
   const [snapshotKey, setSnapshotKey] = useState(0);
   const dailySnapshotDoneRef = useRef(false);
   
+  // Range state lifted from chart
+  const [selectedRange, setSelectedRange] = useState<TimeRange>('1D');
+  const [chartSnapshots, setChartSnapshots] = useState<SnapshotRow[]>([]);
+
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isPageVisibleRef = useRef(true);
+
+  const availableRanges = useMemo((): TimeRange[] => {
+    if (!portfolio) return ['1D', 'ALL'];
+    const ageDays = (Date.now() - portfolio.createdAt) / (24 * 60 * 60 * 1000);
+    const ranges: TimeRange[] = ['1D'];
+    if (ageDays >= 2) ranges.push('1W');
+    if (ageDays >= 7) ranges.push('1M');
+    ranges.push('ALL');
+    return ranges;
+  }, [portfolio?.createdAt]);
+
+  const { rangeGain, rangeGainPercent } = useMemo(() => {
+    if (!metrics) return { rangeGain: 0, rangeGainPercent: 0 };
+    const result = computeRangeGain(chartSnapshots, selectedRange, metrics.holdingsValue, metrics.costBasis);
+    return { rangeGain: result.gain, rangeGainPercent: result.percent };
+  }, [chartSnapshots, selectedRange, metrics]);
+
+  const handleDataReady = useCallback((snapshots: SnapshotRow[]) => {
+    setChartSnapshots(snapshots);
+  }, []);
 
   const loadPortfolioData = useCallback(async (forceRefresh = false, freshPortfolio?: Portfolio) => {
     if (!id) return;
@@ -99,7 +161,6 @@ const PortfolioDetail = () => {
     setIsLoading(false);
     setHasFetchedPrices(true);
 
-    // Capture snapshot on refresh (don't bump snapshotKey — chart has its own 60s timer)
     if (forceRefresh && id) {
       capturePortfolioSnapshot(id, portfolioWithPrices, newMetrics, 'auto');
     }
@@ -109,14 +170,12 @@ const PortfolioDetail = () => {
     }
   }, [id, getPortfolio, portfoliosLoading, navigate, hasFetchedPrices]);
 
-  // Load when portfolios are ready
   useEffect(() => {
     if (!portfoliosLoading && id && !hasFetchedPrices) {
       loadPortfolioData();
     }
   }, [portfoliosLoading, id, hasFetchedPrices, loadPortfolioData]);
 
-  // Opportunistic daily snapshot
   useEffect(() => {
     if (id && hasFetchedPrices && portfolio && metrics && !dailySnapshotDoneRef.current) {
       dailySnapshotDoneRef.current = true;
@@ -129,7 +188,6 @@ const PortfolioDetail = () => {
     }
   }, [id, hasFetchedPrices, portfolio, metrics]);
 
-  // Auto-refresh with visibility API
   useEffect(() => {
     const handleVisibilityChange = () => {
       isPageVisibleRef.current = !document.hidden;
@@ -200,7 +258,6 @@ const PortfolioDetail = () => {
     const freshPortfolios = await fetchPortfolios();
     const freshPortfolio = freshPortfolios.find(p => p.id === id);
     await loadPortfolioData(true, freshPortfolio);
-    // Trade snapshot is already captured by TradeModal; bump chart key
     setSnapshotKey(k => k + 1);
   };
 
@@ -293,12 +350,19 @@ const PortfolioDetail = () => {
             metrics={metrics}
             cash={portfolio.cash}
             startingCash={portfolio.startingCash}
+            selectedRange={selectedRange}
+            onRangeChange={setSelectedRange}
+            availableRanges={availableRanges}
+            rangeGain={rangeGain}
+            rangeGainPercent={rangeGainPercent}
           />
           <PortfolioGrowthChart
             portfolioId={portfolio.id}
             portfolioCreatedAt={portfolio.createdAt}
             snapshotKey={snapshotKey}
             currentUnrealizedPL={metrics.unrealizedPL}
+            selectedRange={selectedRange}
+            onDataReady={handleDataReady}
           />
         </div>
 
@@ -369,7 +433,6 @@ const PortfolioDetail = () => {
         )}
       </main>
 
-      {/* Asset Detail Modal */}
       <AssetDetailModal
         isOpen={!!selectedHolding}
         onClose={() => setSelectedHolding(null)}
@@ -380,14 +443,12 @@ const PortfolioDetail = () => {
         }}
       />
 
-      {/* Dividend Breakdown Modal */}
       <DividendBreakdown
         isOpen={showDividendBreakdown}
         onClose={() => setShowDividendBreakdown(false)}
         portfolio={portfolio}
       />
 
-      {/* Trade Modal */}
       <TradeModal
         isOpen={isTradeModalOpen}
         onClose={() => {
@@ -399,7 +460,6 @@ const PortfolioDetail = () => {
         initialSymbol={tradeSymbol}
       />
 
-      {/* Delete Confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
