@@ -1,103 +1,122 @@
 
+# Robinhood-Style Portfolio Layout
 
-# Fix Portfolio Growth Chart Refresh (No Flicker)
+## Overview
 
-## Root Causes
-
-1. `setIsLoading(true)` fires on every re-fetch, showing skeleton loader and unmounting the chart
-2. `snapshotKey` increments every 8 seconds (on each auto-snapshot), triggering a full re-fetch each time
-3. No data comparison -- state is always replaced even when snapshots haven't changed
-4. No interaction-awareness -- data swaps while user is hovering the chart
+Restructure the portfolio detail page to match Robinhood's visual hierarchy: the "Investing" value and all-time change pill sit at the top, followed immediately by the chart (no card border, no title), then a labeled "Portfolio position" section containing the metric tiles.
 
 ## Changes
 
-### 1. Modify: `src/components/PortfolioGrowthChart.tsx`
+### 1. Modify: `src/components/PerformanceSummary.tsx`
 
-**Remove skeleton flicker (stale-while-revalidate)**
-- Only show skeleton on the very first load (`isLoading && allSnapshots.length === 0`)
-- Background re-fetches keep the old data visible; swap in new data silently when ready
+Split this component into two parts:
 
-**Deduplicate updates**
-- Before calling `setAllSnapshots`, compare the last snapshot's `id` and count with current state
-- If identical, skip the state update entirely
+**Part A -- `PerformanceHeader`** (new export from same file): Renders only the top "Investing" section:
+- "INVESTING" label
+- Large holdings value
+- All-time change pill with percentage
+- "No investments yet" empty state
+- No card wrapper (no `glass-card`) -- just raw content so it flows into the chart
 
-**Interaction-aware pausing**
-- Add `isHovering` ref, set via `onMouseEnter`/`onMouseLeave` on the chart container
-- When new data arrives during hover, stash it in a `pendingData` ref
-- Apply pending data 2 seconds after `onMouseLeave`
+**Part B -- `PerformanceDetails`** (new export from same file): Renders the breakdown tiles under a "Portfolio position" heading:
+- Section title: `<h2 className="text-lg font-semibold mb-4">Portfolio position</h2>`
+- The 2x2/4-col grid: Total invested, Cash, Gain/Loss, Today
+- The footer row: Buying Power, Realized P/L, Dividends
+- Wrapped in `glass-card p-6`
 
-**Throttle re-fetches to ~60s for passive updates**
-- Replace `snapshotKey` dependency with an internal timer (60s interval)
-- Add a `triggerRefresh()` callback exposed via a new prop or by accepting a `refreshSignal` number that only increments on trades/manual refresh (not every 8s auto-snapshot)
+Keep the existing `PerformanceSummary` default export for backward compatibility (renders both parts together), but export the two sub-components for use in `PortfolioDetail`.
 
-**Recharts animation**
-- Add `isAnimationActive={true}` and `animationDuration={300}` to the `Area` component for smooth line transitions when data changes
+### 2. Modify: `src/components/PortfolioGrowthChart.tsx`
 
-### 2. Modify: `src/pages/PortfolioDetail.tsx`
+Remove chart chrome:
+- Remove the `glass-card p-6` wrapper div -- the chart will be placed inside the parent's card
+- Remove the "Portfolio Growth" `<h2>` title and subtitle `<p>`
+- Remove `YAxis` component entirely (no Y-axis labels/ticks)
+- Keep the time range buttons, but move them to a standalone row above the chart area
+- Keep tooltip, area fill, trade dots, hover handlers, animation
+- Adjust left margin from 10 to 0 since there's no Y-axis
+- Export `onMouseEnter`/`onMouseLeave` props or keep them on the outer div
 
-**Stop bumping snapshotKey on every auto-snapshot**
-- Remove `setSnapshotKey(k => k + 1)` from the auto-snapshot `.then()` callback (line 105)
-- Keep it only in `handleTradeComplete` (line 208) so trade events still trigger an immediate chart refresh
+### 3. Modify: `src/pages/PortfolioDetail.tsx`
 
-**Rename prop for clarity**
-- Pass `snapshotKey` only for trade/manual triggers (already the case after removing the auto-snapshot bump)
+Restructure the layout order:
+
+```text
+[Nav header + back button + trade button]
+
+[glass-card]
+  PerformanceHeader (INVESTING + change pill)
+  [time range buttons]
+  PortfolioGrowthChart (no card, no title, no Y-axis)
+[/glass-card]
+
+[Portfolio position section]
+  <h2>Portfolio position</h2>
+  PerformanceDetails (tiles + footer row)
+
+[Holdings & Allocation grid]
+[Recent Transactions]
+```
+
+- Wrap `PerformanceHeader` and `PortfolioGrowthChart` together in a single `glass-card p-6` div
+- Replace the old `<PerformanceSummary>` with the two new sub-components placed in their respective positions
+- The chart's hover handlers attach to the shared card container
 
 ## Technical Details
 
-### PortfolioGrowthChart internal refresh logic
-
-```text
-On mount:
-  1. Fetch snapshots, show skeleton
-  2. Set allSnapshots, hide skeleton
-
-Every 60s (internal timer):
-  1. Fetch snapshots in background (no loading state)
-  2. Compare: if last snapshot id/count unchanged, skip
-  3. If user is hovering, stash in pendingData ref
-  4. Otherwise, set allSnapshots (Recharts animates the transition)
-
-On snapshotKey change (trade/manual only):
-  1. Fetch snapshots immediately (no loading state)
-  2. Apply data even if hovering (trade is high priority)
-```
-
-### Data comparison function
+### PerformanceHeader component
 
 ```typescript
-const hasNewData = (current: SnapshotRow[], incoming: SnapshotRow[]): boolean => {
-  if (current.length !== incoming.length) return true;
-  if (current.length === 0) return false;
-  const lastCurrent = current[current.length - 1];
-  const lastIncoming = incoming[incoming.length - 1];
-  return lastCurrent.id !== lastIncoming.id;
+export const PerformanceHeader = ({ metrics, cash, startingCash }: PerformanceSummaryProps) => {
+  // Renders only lines 21-41 of current PerformanceSummary:
+  // - "INVESTING" label
+  // - Large value
+  // - All-time change pill
+  // No wrapping card div
 };
 ```
 
-### Hover pause
+### PerformanceDetails component
 
 ```typescript
-const isHoveringRef = useRef(false);
-const pendingDataRef = useRef<SnapshotRow[] | null>(null);
-const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-// On mouse leave, apply pending data after 2s
-const handleMouseLeave = () => {
-  isHoveringRef.current = false;
-  if (pendingDataRef.current) {
-    hoverTimeoutRef.current = setTimeout(() => {
-      if (pendingDataRef.current) {
-        setAllSnapshots(pendingDataRef.current);
-        pendingDataRef.current = null;
-      }
-    }, 2000);
-  }
+export const PerformanceDetails = ({ metrics, cash, startingCash }: PerformanceSummaryProps) => {
+  // Renders the grid (lines 44-87) and footer (lines 90-108)
+  // Wrapped in glass-card with "Portfolio position" heading
 };
+```
+
+### PortfolioGrowthChart changes
+
+- Remove outer `glass-card p-6` div -- replace with plain `<div>` for hover handlers
+- Delete `<h2>Portfolio Growth</h2>` and subtitle `<p>`
+- Delete entire `<YAxis ... />` element
+- Update `AreaChart` margin to `{ top: 5, right: 10, left: 0, bottom: 0 }`
+- Keep time range buttons row (renders above the chart area within the component)
+
+### PortfolioDetail layout
+
+```tsx
+{/* Hero: Investing value + Chart */}
+<div className="glass-card p-6 mb-6">
+  <PerformanceHeader metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
+  <PortfolioGrowthChart
+    portfolioId={portfolio.id}
+    portfolioCreatedAt={portfolio.createdAt}
+    snapshotKey={snapshotKey}
+    currentUnrealizedPL={metrics.unrealizedPL}
+  />
+</div>
+
+{/* Portfolio position */}
+<div className="mb-6">
+  <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
+</div>
 ```
 
 ## Files Summary
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/components/PortfolioGrowthChart.tsx` | Modify | Stale-while-revalidate, 60s internal timer, hover pause, data dedup, animation |
-| `src/pages/PortfolioDetail.tsx` | Modify | Stop bumping snapshotKey on auto-snapshots (only trade/manual) |
+| `src/components/PerformanceSummary.tsx` | Modify | Split into PerformanceHeader + PerformanceDetails exports |
+| `src/components/PortfolioGrowthChart.tsx` | Modify | Remove title, subtitle, Y-axis, card wrapper |
+| `src/pages/PortfolioDetail.tsx` | Modify | Restructure layout order |
