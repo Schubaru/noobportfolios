@@ -99,11 +99,9 @@ const PortfolioDetail = () => {
     setIsLoading(false);
     setHasFetchedPrices(true);
 
-    // Capture snapshot on refresh
+    // Capture snapshot on refresh (don't bump snapshotKey — chart has its own 60s timer)
     if (forceRefresh && id) {
-      capturePortfolioSnapshot(id, portfolioWithPrices, newMetrics, 'auto').then(() => {
-        setSnapshotKey(k => k + 1);
-      });
+      capturePortfolioSnapshot(id, portfolioWithPrices, newMetrics, 'auto');
     }
     
     if (hasApiErrors && forceRefresh) {
@@ -125,9 +123,7 @@ const PortfolioDetail = () => {
       getLastSnapshotAge(id).then(ageMs => {
         const TWENTY_HOURS = 20 * 60 * 60 * 1000;
         if (ageMs === null || ageMs >= TWENTY_HOURS) {
-          capturePortfolioSnapshot(id, portfolio, metrics, 'daily').then(() => {
-            setSnapshotKey(k => k + 1);
-          });
+          capturePortfolioSnapshot(id, portfolio, metrics, 'daily');
         }
       });
     }

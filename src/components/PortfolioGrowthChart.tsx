@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
 import { fetchSnapshots, SnapshotRow } from '@/lib/snapshots';
 import { formatCurrency } from '@/lib/portfolio';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 interface PortfolioGrowthChartProps {
   portfolioId: string;
   portfolioCreatedAt: number;
-  snapshotKey: number; // increment to trigger re-fetch
+  snapshotKey: number; // increment on trade/manual refresh only
   currentUnrealizedPL?: number;
 }
 
@@ -30,6 +30,14 @@ const RANGE_MS: Record<TimeRange, number> = {
   'ALL': Infinity,
 };
 
+const PASSIVE_REFRESH_MS = 60_000;
+
+const hasNewData = (current: SnapshotRow[], incoming: SnapshotRow[]): boolean => {
+  if (current.length !== incoming.length) return true;
+  if (current.length === 0) return false;
+  return current[current.length - 1].id !== incoming[incoming.length - 1].id;
+};
+
 const formatYTick = (val: number): string => {
   const abs = Math.abs(val);
   if (abs >= 10000) {
@@ -47,7 +55,6 @@ const formatPLValue = (val: number): string => {
 };
 
 function makeXTickFormatter(data: ChartPoint[]) {
-  // Check if there are duplicate dates
   const dateStrings = data.map(d => new Date(d.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
   const hasDuplicates = new Set(dateStrings).size < dateStrings.length;
 
@@ -98,18 +105,92 @@ function CustomTooltip({ active, payload }: any) {
 const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, currentUnrealizedPL }: PortfolioGrowthChartProps) => {
   const [allSnapshots, setAllSnapshots] = useState<SnapshotRow[]>([]);
   const [selectedRange, setSelectedRange] = useState<TimeRange>('ALL');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
 
-  const loadSnapshots = useCallback(async () => {
-    setIsLoading(true);
+  // Interaction-aware refs
+  const isHoveringRef = useRef(false);
+  const pendingDataRef = useRef<SnapshotRow[] | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const passiveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevSnapshotKeyRef = useRef(snapshotKey);
+
+  // Apply data with hover awareness; highPriority bypasses hover pause
+  const applyData = useCallback((incoming: SnapshotRow[], highPriority: boolean) => {
+    if (!hasNewData(allSnapshots, incoming)) return;
+
+    if (!highPriority && isHoveringRef.current) {
+      pendingDataRef.current = incoming;
+      return;
+    }
+
+    setAllSnapshots(incoming);
+  }, [allSnapshots]);
+
+  // Background fetch (no loading state)
+  const fetchInBackground = useCallback(async (highPriority = false) => {
     const rows = await fetchSnapshots(portfolioId);
-    setAllSnapshots(rows);
-    setIsLoading(false);
+    applyData(rows, highPriority);
+  }, [portfolioId, applyData]);
+
+  // Initial load — only time we show skeleton
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchSnapshots(portfolioId);
+      if (!cancelled) {
+        setAllSnapshots(rows);
+        setIsFirstLoad(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [portfolioId]);
 
+  // Passive 60s timer
   useEffect(() => {
-    loadSnapshots();
-  }, [loadSnapshots, snapshotKey]);
+    passiveTimerRef.current = setInterval(() => {
+      fetchInBackground(false);
+    }, PASSIVE_REFRESH_MS);
+
+    return () => {
+      if (passiveTimerRef.current) clearInterval(passiveTimerRef.current);
+    };
+  }, [fetchInBackground]);
+
+  // High-priority refresh on snapshotKey change (trade/manual)
+  useEffect(() => {
+    if (snapshotKey !== prevSnapshotKeyRef.current) {
+      prevSnapshotKeyRef.current = snapshotKey;
+      fetchInBackground(true);
+    }
+  }, [snapshotKey, fetchInBackground]);
+
+  // Hover handlers
+  const handleMouseEnter = useCallback(() => {
+    isHoveringRef.current = true;
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    isHoveringRef.current = false;
+    if (pendingDataRef.current) {
+      hoverTimeoutRef.current = setTimeout(() => {
+        if (pendingDataRef.current) {
+          setAllSnapshots(pendingDataRef.current);
+          pendingDataRef.current = null;
+        }
+      }, 2000);
+    }
+  }, []);
+
+  // Cleanup hover timeout
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    };
+  }, []);
 
   // Filter to rows that have invested_value and cost_basis
   const validSnapshots = useMemo(() =>
@@ -159,7 +240,6 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     let lo = min - padding;
     let hi = max + padding;
     
-    // Include 0 if data crosses zero or is near it
     if (min >= 0 && lo > 0) lo = Math.min(lo, -padding * 0.5);
     if (max <= 0 && hi < 0) hi = Math.max(hi, padding * 0.5);
     
@@ -187,7 +267,8 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
 
   const xTickFormatter = useMemo(() => makeXTickFormatter(filteredData), [filteredData]);
 
-  if (isLoading) {
+  // Only show skeleton on very first load with no data
+  if (isFirstLoad && allSnapshots.length === 0) {
     return (
       <div className="glass-card p-6">
         <div className="animate-pulse space-y-4">
@@ -199,7 +280,11 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
   }
 
   return (
-    <div className="glass-card p-6">
+    <div
+      className="glass-card p-6"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       <div className="flex items-center justify-between mb-1">
         <div>
           <h2 className="text-lg font-semibold">Portfolio Growth</h2>
@@ -273,6 +358,9 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
                 fill={`url(#${gradientId})`}
                 dot={false}
                 activeDot={{ r: 4, strokeWidth: 0, fill: lineColor }}
+                isAnimationActive={true}
+                animationDuration={300}
+                animationEasing="ease-in-out"
               />
               {tradeDots.map((td, i) => (
                 <ReferenceDot
