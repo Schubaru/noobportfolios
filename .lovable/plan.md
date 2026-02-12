@@ -1,138 +1,188 @@
 
 
-# Fix Portfolio Growth Snapshot Integrity and Time Relevance
+# Unified Window-Based Range Logic for Chart and Gain/Loss
 
-## Problems Found
+## Overview
 
-1. **ALL range uses cost basis instead of first snapshot**: `computeRangeGain` for ALL calculates `currentInvestedValue - costBasis`, but should use the first snapshot's invested value as baseline for consistency with the chart's first visible point.
+Align the chart, gain/loss pill, and tooltip so they all use the same window-based baseline logic. Ensure snapshots are created on portfolio open (not just on trades), so the chart always has data for portfolios with holdings.
 
-2. **Daily snapshot check uses time-based threshold (20 hours) instead of calendar-day check**: The current logic (`ageMs >= TWENTY_HOURS`) can miss days or double-capture. Should check "does a snapshot exist for today's date?" instead.
+## Problems in Current Code
 
-3. **No deduplication guard**: Snapshots within 2 minutes of each other should be prevented (the current 5-second rate limit is too short for daily/trade sources).
-
-4. **Range gain/loss doesn't match chart endpoints**: The gain/loss pill computes from raw snapshots while the chart filters by range cutoff -- these can diverge because `computeRangeGain` looks for baseline BEFORE the cutoff but the chart shows points AFTER the cutoff.
+1. **1D uses `now - 24h` instead of local midnight**: `RANGE_MS['1D']` is 86400000ms, so 1D filters from "24 hours ago" rather than "start of today".
+2. **Chart shows absolute P/L** (`investedValue - costBasis`), not range-relative P/L. The tooltip and chart line should show change *since the window baseline*.
+3. **No periodic snapshots on open**: Only a single "daily" snapshot is created per calendar day. If the user opens the portfolio hours later, there's no fresh data point, so the chart looks stale.
+4. **Tooltip shows absolute P/L**: Should show "P/L since window start" for the selected range.
+5. **X-axis domain uses `dataMin/dataMax`**: Should use the full window (`windowStart` to `now`) so 1D shows midnight-to-now even if data starts later.
 
 ## Changes
 
 ### 1. Modify: `src/lib/snapshots.ts`
 
-**Fix daily snapshot detection**
-- Add a new function `hasSnapshotToday(portfolioId)` that queries for any snapshot where `recorded_at` falls within today's UTC date boundaries
-- Replace the 20-hour threshold check in the page with this calendar-day check
+- Expand `source` type to include `'baseline'`
+- Add `ensureRecentSnapshot(portfolioId, portfolio, metrics)`: creates a snapshot if the last one is older than 15 minutes (source = `'baseline'`), rate-limited
+- Keep `hasSnapshotToday` and `capturePortfolioSnapshot` as-is (they already work for trade/daily)
 
-**Add 2-minute deduplication for non-auto sources**
-- Update `shouldCapture` to accept a `minMs` parameter and use 120000 (2 min) for trade/daily sources
-- Add check in `capturePortfolioSnapshot` before inserting
+### 2. Modify: `src/components/PortfolioGrowthChart.tsx`
 
-### 2. Modify: `src/pages/PortfolioDetail.tsx`
+**Window start calculation**:
+- 1D: local midnight today (`new Date().setHours(0,0,0,0)`)
+- 1W: `now - 7 days`
+- 1M: `now - 30 days`
+- ALL: `0` (epoch, meaning all data)
 
-**Fix `computeRangeGain` for ALL range**
-- ALL range should use the first snapshot's invested value as baseline (not cost basis from current metrics)
-- This ensures the gain/loss pill matches the difference between the first and last chart points
+**Baseline snapshot selection** (for chart P/L values):
+- Find the snapshot closest to `windowStart`: prefer first snapshot at/after windowStart; if none, use nearest before
+- All chart point values become `point.investedValue - baseline.investedValue` (range-relative)
 
-**Fix baseline consistency**
-- For 1D/1W/1M: find the nearest snapshot at or before the cutoff timestamp
-- Use that snapshot's `investedValue` as the denominator for percentage calculation
-- Gain = `currentInvestedValue - baseline.investedValue`
-- Percent = `gain / baseline.investedValue`
+**X-axis domain**:
+- Set to `[windowStart, now]` instead of `['dataMin', 'dataMax']`
+- This shows the full time window even if data only covers part of it
 
-**Fix daily snapshot logic**
-- Replace the 20-hour threshold with `hasSnapshotToday()` from snapshots.ts
-- Ensure a snapshot is created immediately when the user opens the portfolio and none exists for today
+**Tooltip**:
+- Show range-relative P/L: `point.investedValue - baseline.investedValue`
 
-### 3. Verify: `src/components/PortfolioGrowthChart.tsx`
+**Export `getWindowStart` utility** so the parent can use the same logic for gain/loss calculation.
 
-No changes needed -- the chart already:
-- Only displays real snapshot data (no synthetic points)
-- Filters by range cutoff correctly
-- Sorts ascending by timestamp
-- Animates transitions smoothly
-- Pauses updates during hover
+### 3. Modify: `src/pages/PortfolioDetail.tsx`
+
+**Fix `computeRangeGain`**:
+- Use same `getWindowStart` function for consistency
+- 1D baseline = snapshot nearest to local midnight
+- 1W/1M baseline = snapshot nearest to `now - 7d/30d`
+- ALL baseline = first snapshot
+- `range_gain = currentInvestedValue - baseline.investedValue`
+- `range_percent = range_gain / baseline.investedValue`
+
+**Add baseline snapshot on open**:
+- After prices are fetched, call `ensureRecentSnapshot` to create a snapshot if last one is > 15 minutes old
+- Keep existing daily snapshot logic as-is (they complement each other)
 
 ## Technical Details
 
-### New `hasSnapshotToday` function (snapshots.ts)
+### `getWindowStart` function (exported from PortfolioGrowthChart or a shared util)
 
 ```typescript
-export const hasSnapshotToday = async (portfolioId: string): Promise<boolean> => {
-  const now = new Date();
-  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-
-  const { data } = await supabase
-    .from('value_history')
-    .select('id')
-    .eq('portfolio_id', portfolioId)
-    .gte('recorded_at', startOfDay.toISOString())
-    .lt('recorded_at', endOfDay.toISOString())
-    .limit(1);
-
-  return (data?.length ?? 0) > 0;
-};
-```
-
-### Updated deduplication in `capturePortfolioSnapshot`
-
-```typescript
-// Before insert, check for recent snapshot (2 min for trade/daily)
-if (source === 'trade' || source === 'daily') {
-  const ok = await shouldCapture(portfolioId, 120_000);
-  if (!ok) return;
+export function getWindowStart(range: TimeRange): number {
+  const now = Date.now();
+  switch (range) {
+    case '1D': {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    }
+    case '1W': return now - 7 * 24 * 60 * 60 * 1000;
+    case '1M': return now - 30 * 24 * 60 * 60 * 1000;
+    case 'ALL': return 0;
+  }
 }
 ```
 
-### Fixed `computeRangeGain`
+### `findBaseline` function (used by both chart and parent)
+
+```typescript
+export function findBaseline(
+  snapshots: SnapshotRow[],
+  windowStart: number
+): SnapshotRow | null {
+  const valid = snapshots.filter(s => s.investedValue != null);
+  if (valid.length === 0) return null;
+
+  // Prefer first snapshot at or after windowStart
+  const atOrAfter = valid
+    .filter(s => s.timestamp >= windowStart)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  if (atOrAfter.length > 0) return atOrAfter[0];
+
+  // Fallback: nearest before windowStart
+  const before = valid
+    .filter(s => s.timestamp < windowStart)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  return before[0] ?? null;
+}
+```
+
+### Chart `filteredData` update
+
+```typescript
+const windowStart = getWindowStart(selectedRange);
+const now = Date.now();
+const baseline = findBaseline(validSnapshots, windowStart);
+const baselineValue = baseline?.investedValue ?? 0;
+
+const filtered = validSnapshots
+  .filter(s => s.timestamp >= windowStart)
+  .sort((a, b) => a.timestamp - b.timestamp);
+
+return filtered.map((s): ChartPoint => ({
+  timestamp: s.timestamp,
+  investedPL: (s.investedValue ?? 0) - baselineValue,
+  source: s.source,
+}));
+```
+
+### X-axis domain
+
+```typescript
+<XAxis
+  dataKey="timestamp"
+  type="number"
+  domain={[windowStart, now]}
+  ...
+/>
+```
+
+### Updated `computeRangeGain`
 
 ```typescript
 function computeRangeGain(
   snapshots: SnapshotRow[],
   range: TimeRange,
-  currentInvestedValue: number,
-  costBasis: number
+  currentInvestedValue: number
 ): { gain: number; percent: number } {
   if (snapshots.length === 0) return { gain: 0, percent: 0 };
 
-  if (range === 'ALL') {
-    // Use first snapshot as baseline for consistency with chart
-    const sorted = [...snapshots]
-      .filter(s => s.investedValue != null)
-      .sort((a, b) => a.timestamp - b.timestamp);
-    const first = sorted[0];
-    if (!first) {
-      const gain = currentInvestedValue - costBasis;
-      return { gain, percent: costBasis > 0 ? gain / costBasis : 0 };
-    }
-    const gain = currentInvestedValue - (first.investedValue ?? 0);
-    const baseVal = first.investedValue ?? 1;
-    return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
-  }
+  const windowStart = getWindowStart(range);
+  const baseline = findBaseline(snapshots, windowStart);
+  if (!baseline || baseline.investedValue == null) return { gain: 0, percent: 0 };
 
-  const cutoff = Date.now() - RANGE_MS[range];
-  const baseline = snapshots
-    .filter(s => s.timestamp <= cutoff && s.investedValue != null)
-    .sort((a, b) => b.timestamp - a.timestamp)[0];
-
-  if (!baseline) {
-    // Portfolio younger than range -- use first snapshot
-    const sorted = [...snapshots]
-      .filter(s => s.investedValue != null)
-      .sort((a, b) => a.timestamp - b.timestamp);
-    const first = sorted[0];
-    if (!first) return { gain: 0, percent: 0 };
-    const gain = currentInvestedValue - (first.investedValue ?? 0);
-    const baseVal = first.investedValue ?? 1;
-    return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
-  }
-
-  const gain = currentInvestedValue - (baseline.investedValue ?? 0);
-  const baseVal = baseline.investedValue ?? 1;
-  return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
+  const gain = currentInvestedValue - baseline.investedValue;
+  const pct = baseline.investedValue > 0 ? gain / baseline.investedValue : 0;
+  return { gain, percent: pct };
 }
 ```
+
+### `ensureRecentSnapshot` (snapshots.ts)
+
+```typescript
+export const ensureRecentSnapshot = async (
+  portfolioId: string,
+  portfolio: Portfolio,
+  metrics: PortfolioMetrics
+): Promise<void> => {
+  if (portfolio.holdings.length === 0) return;
+  const age = await getLastSnapshotAge(portfolioId);
+  // Create if no snapshots or last one > 15 min old
+  if (age === null || age >= 15 * 60 * 1000) {
+    await capturePortfolioSnapshot(portfolioId, portfolio, metrics, 'baseline');
+  }
+};
+```
+
+The `capturePortfolioSnapshot` source type needs to accept `'baseline'` in addition to existing values. Update its type signature to: `source: 'auto' | 'trade' | 'daily' | 'baseline'`.
+
+For baseline snapshots, use the same 5-second rate limit as auto (not 2-minute).
 
 ### Updated daily snapshot effect (PortfolioDetail.tsx)
 
 ```typescript
+// Ensure baseline snapshot on open (if last snapshot > 15 min)
+useEffect(() => {
+  if (id && hasFetchedPrices && portfolio && metrics) {
+    ensureRecentSnapshot(id, portfolio, metrics);
+  }
+}, [id, hasFetchedPrices, portfolio, metrics]);
+
+// Daily snapshot (once per calendar day)
 useEffect(() => {
   if (id && hasFetchedPrices && portfolio && metrics && !dailySnapshotDoneRef.current) {
     dailySnapshotDoneRef.current = true;
@@ -149,6 +199,7 @@ useEffect(() => {
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/lib/snapshots.ts` | Modify | Add `hasSnapshotToday`, add 2-min dedup for trade/daily |
-| `src/pages/PortfolioDetail.tsx` | Modify | Fix `computeRangeGain` to use first snapshot for ALL, fix daily snapshot check |
+| `src/lib/snapshots.ts` | Modify | Add `ensureRecentSnapshot`, expand source type to include `'baseline'` |
+| `src/components/PortfolioGrowthChart.tsx` | Modify | Use window-based filtering, range-relative P/L, full window x-axis domain, export `getWindowStart` and `findBaseline` |
+| `src/pages/PortfolioDetail.tsx` | Modify | Use `getWindowStart`/`findBaseline` in `computeRangeGain`, add `ensureRecentSnapshot` on open |
 
