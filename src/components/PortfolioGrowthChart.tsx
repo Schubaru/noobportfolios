@@ -90,11 +90,6 @@ function CustomTooltip({ active, payload }: any) {
       <p className={`text-sm font-semibold mt-1 ${point.investedPL >= 0 ? 'text-success' : 'text-destructive'}`}>
         {formatPLValue(point.investedPL)}
       </p>
-      {delta !== null && (
-        <p className="text-muted-foreground mt-0.5">
-          {delta >= 0 ? '+' : ''}{formatCurrency(delta)} since last update
-        </p>
-      )}
       {point.source === 'trade' && (
         <Badge variant="outline" className="mt-1 text-[10px] px-1.5 py-0">Trade executed</Badge>
       )}
