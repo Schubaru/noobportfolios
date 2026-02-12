@@ -55,6 +55,20 @@ interface ChartPoint {
 
 const PASSIVE_REFRESH_MS = 60_000;
 
+function downsample(points: ChartPoint[], maxPoints = 200): ChartPoint[] {
+  if (points.length <= maxPoints) return points;
+  const result: ChartPoint[] = [];
+  const step = (points.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i++) {
+    result.push(points[Math.round(i * step)]);
+  }
+  const resultSet = new Set(result);
+  for (const p of points) {
+    if (p.source === 'trade' && !resultSet.has(p)) result.push(p);
+  }
+  return result.sort((a, b) => a.timestamp - b.timestamp);
+}
+
 const hasNewData = (current: SnapshotRow[], incoming: SnapshotRow[]): boolean => {
   if (current.length !== incoming.length) return true;
   if (current.length === 0) return false;
@@ -195,22 +209,27 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     onDataReady?.(validSnapshots);
   }, [validSnapshots, onDataReady]);
 
+  const { windowStart, windowEnd } = useMemo(() => ({
+    windowStart: getWindowStart(selectedRange),
+    windowEnd: Date.now(),
+  }), [selectedRange]);
+
   const filteredData = useMemo((): ChartPoint[] => {
-    const now = Date.now();
-    const ws = getWindowStart(selectedRange);
-    const baseline = findBaseline(validSnapshots, ws);
+    const baseline = findBaseline(validSnapshots, windowStart);
     const baselineValue = baseline?.investedValue ?? 0;
 
     const filtered = validSnapshots
-      .filter(s => s.timestamp >= ws)
+      .filter(s => s.timestamp >= windowStart)
       .sort((a, b) => a.timestamp - b.timestamp);
 
-    return filtered.map((s): ChartPoint => ({
+    const mapped = filtered.map((s): ChartPoint => ({
       timestamp: s.timestamp,
       investedPL: (s.investedValue ?? 0) - baselineValue,
       source: s.source,
     }));
-  }, [validSnapshots, selectedRange]);
+
+    return downsample(mapped);
+  }, [validSnapshots, windowStart]);
 
   const yDomain = useMemo((): [number, number] => {
     if (filteredData.length === 0) return [-10, 10];
@@ -284,12 +303,10 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
               <XAxis
                 dataKey="timestamp"
                 type="number"
-                domain={[getWindowStart(selectedRange), Date.now()]}
-                tickFormatter={xTickFormatter}
-                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                axisLine={false}
-                tickLine={false}
-                minTickGap={40}
+                scale="time"
+                domain={[windowStart, windowEnd]}
+                allowDataOverflow={true}
+                hide
               />
               <Tooltip content={<CustomTooltip />} />
               <Area
