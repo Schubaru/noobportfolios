@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
+import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
 import { fetchSnapshots, SnapshotRow } from '@/lib/snapshots';
 import { formatCurrency } from '@/lib/portfolio';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 interface PortfolioGrowthChartProps {
   portfolioId: string;
   portfolioCreatedAt: number;
-  snapshotKey: number; // increment on trade/manual refresh only
+  snapshotKey: number;
   currentUnrealizedPL?: number;
 }
 
@@ -36,17 +36,6 @@ const hasNewData = (current: SnapshotRow[], incoming: SnapshotRow[]): boolean =>
   if (current.length !== incoming.length) return true;
   if (current.length === 0) return false;
   return current[current.length - 1].id !== incoming[incoming.length - 1].id;
-};
-
-const formatYTick = (val: number): string => {
-  const abs = Math.abs(val);
-  if (abs >= 10000) {
-    return `${val < 0 ? '-' : ''}$${(abs / 1000).toFixed(1)}k`;
-  }
-  if (abs >= 1000) {
-    return `${val < 0 ? '-' : ''}$${Math.round(abs).toLocaleString()}`;
-  }
-  return `${val < 0 ? '-' : ''}$${abs.toFixed(2)}`;
 };
 
 const formatPLValue = (val: number): string => {
@@ -82,8 +71,6 @@ function CustomTooltip({ active, payload }: any) {
   const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-  const delta = point._prevValue !== undefined ? point.investedPL - point._prevValue : null;
-
   return (
     <div className="rounded-lg border border-border/50 bg-card px-3 py-2 text-xs shadow-xl">
       <p className="text-muted-foreground">{dateStr} · {timeStr}</p>
@@ -102,32 +89,26 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
   const [selectedRange, setSelectedRange] = useState<TimeRange>('ALL');
   const [isFirstLoad, setIsFirstLoad] = useState(true);
 
-  // Interaction-aware refs
   const isHoveringRef = useRef(false);
   const pendingDataRef = useRef<SnapshotRow[] | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const passiveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const prevSnapshotKeyRef = useRef(snapshotKey);
 
-  // Apply data with hover awareness; highPriority bypasses hover pause
   const applyData = useCallback((incoming: SnapshotRow[], highPriority: boolean) => {
     if (!hasNewData(allSnapshots, incoming)) return;
-
     if (!highPriority && isHoveringRef.current) {
       pendingDataRef.current = incoming;
       return;
     }
-
     setAllSnapshots(incoming);
   }, [allSnapshots]);
 
-  // Background fetch (no loading state)
   const fetchInBackground = useCallback(async (highPriority = false) => {
     const rows = await fetchSnapshots(portfolioId);
     applyData(rows, highPriority);
   }, [portfolioId, applyData]);
 
-  // Initial load — only time we show skeleton
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -140,18 +121,15 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     return () => { cancelled = true; };
   }, [portfolioId]);
 
-  // Passive 60s timer
   useEffect(() => {
     passiveTimerRef.current = setInterval(() => {
       fetchInBackground(false);
     }, PASSIVE_REFRESH_MS);
-
     return () => {
       if (passiveTimerRef.current) clearInterval(passiveTimerRef.current);
     };
   }, [fetchInBackground]);
 
-  // High-priority refresh on snapshotKey change (trade/manual)
   useEffect(() => {
     if (snapshotKey !== prevSnapshotKeyRef.current) {
       prevSnapshotKeyRef.current = snapshotKey;
@@ -159,7 +137,6 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     }
   }, [snapshotKey, fetchInBackground]);
 
-  // Hover handlers
   const handleMouseEnter = useCallback(() => {
     isHoveringRef.current = true;
     if (hoverTimeoutRef.current) {
@@ -180,20 +157,17 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     }
   }, []);
 
-  // Cleanup hover timeout
   useEffect(() => {
     return () => {
       if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     };
   }, []);
 
-  // Filter to rows that have invested_value and cost_basis
   const validSnapshots = useMemo(() =>
     allSnapshots.filter(s => s.investedValue !== null && s.costBasis !== null),
     [allSnapshots]
   );
 
-  // Determine available time ranges based on portfolio age
   const availableRanges = useMemo((): TimeRange[] => {
     const ageMs = Date.now() - portfolioCreatedAt;
     const ageDays = ageMs / (24 * 60 * 60 * 1000);
@@ -206,15 +180,12 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     return ranges;
   }, [portfolioCreatedAt]);
 
-  // Filter snapshots by selected range
   const filteredData = useMemo((): ChartPoint[] => {
     const now = Date.now();
     const cutoff = selectedRange === 'ALL' ? 0 : now - RANGE_MS[selectedRange];
-
     const filtered = validSnapshots
       .filter(s => s.timestamp >= cutoff)
       .sort((a, b) => a.timestamp - b.timestamp);
-
     return filtered.map((s, i): ChartPoint => ({
       timestamp: s.timestamp,
       investedPL: (s.investedValue ?? 0) - (s.costBasis ?? 0),
@@ -223,7 +194,6 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     }));
   }, [validSnapshots, selectedRange]);
 
-  // Y-axis domain with padding
   const yDomain = useMemo((): [number, number] => {
     if (filteredData.length === 0) return [-10, 10];
     const values = filteredData.map(d => d.investedPL);
@@ -231,25 +201,18 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     const max = Math.max(...values);
     const range = max - min;
     const padding = range < 1 ? Math.max(Math.abs(min) * 0.05, 5) : range * 0.08;
-    
     let lo = min - padding;
     let hi = max + padding;
-    
     if (min >= 0 && lo > 0) lo = Math.min(lo, -padding * 0.5);
     if (max <= 0 && hi < 0) hi = Math.max(hi, padding * 0.5);
-    
     return [lo, hi];
   }, [filteredData]);
 
-  // Line color based on latest P/L
   const latestPL = filteredData.length > 0 ? filteredData[filteredData.length - 1].investedPL : 0;
   const lineColor = latestPL >= 0 ? 'hsl(var(--chart-positive))' : 'hsl(var(--chart-negative))';
   const gradientId = `pl-gradient-${portfolioId}`;
-
-  // Trade dots
   const tradeDots = filteredData.filter(d => d.source === 'trade');
 
-  // QA check
   useEffect(() => {
     if (currentUnrealizedPL !== undefined && filteredData.length > 0) {
       const lastPL = filteredData[filteredData.length - 1].investedPL;
@@ -262,12 +225,10 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
 
   const xTickFormatter = useMemo(() => makeXTickFormatter(filteredData), [filteredData]);
 
-  // Only show skeleton on very first load with no data
   if (isFirstLoad && allSnapshots.length === 0) {
     return (
-      <div className="glass-card p-6">
+      <div className="mt-4">
         <div className="animate-pulse space-y-4">
-          <div className="h-5 bg-muted rounded w-1/3" />
           <div className="h-[200px] bg-muted rounded" />
         </div>
       </div>
@@ -276,18 +237,12 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
 
   return (
     <div
-      className="glass-card p-6"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <div className="flex items-center justify-between mb-1">
-        <div>
-          <h2 className="text-lg font-semibold">Portfolio Growth</h2>
-          <p className="text-xs text-muted-foreground">
-            Tracks your portfolio value over time. Updates after trades and periodically.
-          </p>
-        </div>
-        <div className="flex gap-1">
+      {/* Time range controls */}
+      <div className="flex justify-end mb-2">
+        <div className="flex gap-1 flex-wrap">
           {availableRanges.map(range => (
             <Button
               key={range}
@@ -316,9 +271,9 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
           </p>
         </div>
       ) : (
-        <div className="h-[220px] mt-2">
+        <div className="h-[220px]">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={filteredData} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
+            <AreaChart data={filteredData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={lineColor} stopOpacity={0.3} />
@@ -334,15 +289,6 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
                 axisLine={false}
                 tickLine={false}
                 minTickGap={40}
-              />
-              <YAxis
-                domain={yDomain}
-                tickFormatter={formatYTick}
-                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                axisLine={false}
-                tickLine={false}
-                width={60}
-                tickCount={5}
               />
               <Tooltip content={<CustomTooltip />} />
               <Area

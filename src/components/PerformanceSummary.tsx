@@ -2,47 +2,68 @@ import { TrendingUp, TrendingDown, DollarSign, Wallet, Activity } from 'lucide-r
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { PortfolioMetrics } from '@/lib/types';
 import { cn } from '@/lib/utils';
+
 interface PerformanceSummaryProps {
   metrics: PortfolioMetrics;
   cash: number;
   startingCash: number;
 }
-const PerformanceSummary = ({
+
+export const PerformanceHeader = ({
+  metrics,
+  cash,
+  startingCash
+}: PerformanceSummaryProps) => {
+  const isPositiveUnrealized = metrics.unrealizedPL >= 0;
+  const hasHoldings = metrics.holdingsValue > 0;
+
+  return (
+    <div className="mb-4">
+      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+        Investing
+      </p>
+      <p className="text-4xl md:text-5xl font-bold tracking-tight">
+        {formatCurrency(metrics.holdingsValue)}
+      </p>
+      {hasHoldings && (
+        <div className="flex items-center gap-3 mt-2">
+          <div className={cn(
+            "flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium",
+            isPositiveUnrealized ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+          )}>
+            {isPositiveUnrealized ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+            <span>{isPositiveUnrealized ? '+' : ''}{formatCurrency(metrics.unrealizedPL)}</span>
+            <span className="text-xs opacity-80">
+              ({formatPercent(metrics.allTimePLPercent)})
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground">all-time</span>
+        </div>
+      )}
+      {!hasHoldings && (
+        <p className="text-sm text-muted-foreground mt-2">
+          No investments yet. Start trading to see your portfolio value.
+        </p>
+      )}
+    </div>
+  );
+};
+
+export const PerformanceDetails = ({
   metrics,
   cash,
   startingCash
 }: PerformanceSummaryProps) => {
   const isPositiveUnrealized = metrics.unrealizedPL >= 0;
   const isPositiveDaily = metrics.dailyPL !== null && metrics.dailyPL >= 0;
-  const hasHoldings = metrics.holdingsValue > 0;
   const hasDailyData = metrics.hasDailyBaseline && metrics.dailyPL !== null;
-  return <div className="glass-card p-6">
-      {/* Main value display - Holdings value (like Robinhood) */}
-      <div className="mb-6">
-        <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-          Investing
-        </p>
-        <p className="text-4xl md:text-5xl font-bold tracking-tight">
-          {formatCurrency(metrics.holdingsValue)}
-        </p>
-        {hasHoldings && <div className="flex items-center gap-3 mt-2">
-            <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium", isPositiveUnrealized ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
-              {isPositiveUnrealized ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-              <span>{isPositiveUnrealized ? '+' : ''}{formatCurrency(metrics.unrealizedPL)}</span>
-              <span className="text-xs opacity-80">
-                ({formatPercent(metrics.allTimePLPercent)})
-              </span>
-            </div>
-            <span className="text-xs text-muted-foreground">all-time</span>
-          </div>}
-        {!hasHoldings && <p className="text-sm text-muted-foreground mt-2">
-            No investments yet. Start trading to see your portfolio value.
-          </p>}
-      </div>
+
+  return (
+    <div className="glass-card p-6">
+      <h2 className="text-lg font-semibold mb-4">Portfolio position</h2>
 
       {/* Breakdown grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {/* Cost Basis (what you paid) */}
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4 text-muted-foreground" />
@@ -51,7 +72,6 @@ const PerformanceSummary = ({
           <p className="text-lg font-semibold">{formatCurrency(metrics.costBasis)}</p>
         </div>
 
-        {/* Available Cash */}
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
             <Wallet className="w-4 h-4 text-muted-foreground" />
@@ -60,7 +80,6 @@ const PerformanceSummary = ({
           <p className="text-lg font-semibold">{formatCurrency(cash)}</p>
         </div>
 
-        {/* Unrealized P/L */}
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
             <DollarSign className="w-4 h-4 text-muted-foreground" />
@@ -71,18 +90,23 @@ const PerformanceSummary = ({
           </p>
         </div>
 
-        {/* Today's Change - shows "—" if baseline is unavailable */}
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
             {hasDailyData && isPositiveDaily ? <TrendingUp className="w-4 h-4 text-muted-foreground" /> : hasDailyData ? <TrendingDown className="w-4 h-4 text-muted-foreground" /> : <Activity className="w-4 h-4 text-muted-foreground" />}
             <p className="text-xs text-muted-foreground">Today</p>
           </div>
-          {hasDailyData ? <p className={cn("text-lg font-semibold", isPositiveDaily ? "text-success" : "text-destructive")}>
+          {hasDailyData ? (
+            <p className={cn("text-lg font-semibold", isPositiveDaily ? "text-success" : "text-destructive")}>
               {isPositiveDaily ? '+' : ''}{formatCurrency(metrics.dailyPL!)}
-              {metrics.dailyPLPercent !== null && <span className="text-sm ml-1 opacity-80">
+              {metrics.dailyPLPercent !== null && (
+                <span className="text-sm ml-1 opacity-80">
                   ({formatPercent(metrics.dailyPLPercent)})
-                </span>}
-            </p> : <p className="text-lg font-semibold text-muted-foreground">—</p>}
+                </span>
+              )}
+            </p>
+          ) : (
+            <p className="text-lg font-semibold text-muted-foreground">—</p>
+          )}
         </div>
       </div>
 
@@ -107,6 +131,25 @@ const PerformanceSummary = ({
           </div>
         </div>
       </div>
-    </div>;
+    </div>
+  );
 };
+
+const PerformanceSummary = ({
+  metrics,
+  cash,
+  startingCash
+}: PerformanceSummaryProps) => {
+  return (
+    <div>
+      <div className="glass-card p-6">
+        <PerformanceHeader metrics={metrics} cash={cash} startingCash={startingCash} />
+      </div>
+      <div className="mt-6">
+        <PerformanceDetails metrics={metrics} cash={cash} startingCash={startingCash} />
+      </div>
+    </div>
+  );
+};
+
 export default PerformanceSummary;
