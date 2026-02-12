@@ -24,6 +24,22 @@ const shouldCapture = async (portfolioId: string, minMs = 5000): Promise<boolean
   return Date.now() - new Date(data[0].recorded_at).getTime() >= minMs;
 };
 
+export const hasSnapshotToday = async (portfolioId: string): Promise<boolean> => {
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+  const { data } = await supabase
+    .from('value_history')
+    .select('id')
+    .eq('portfolio_id', portfolioId)
+    .gte('recorded_at', startOfDay.toISOString())
+    .lt('recorded_at', endOfDay.toISOString())
+    .limit(1);
+
+  return (data?.length ?? 0) > 0;
+};
+
 export const capturePortfolioSnapshot = async (
   portfolioId: string,
   portfolio: Portfolio,
@@ -31,9 +47,12 @@ export const capturePortfolioSnapshot = async (
   source: 'auto' | 'trade' | 'daily'
 ): Promise<void> => {
   try {
-    // Rate-limit auto snapshots
+    // Rate-limit auto snapshots (5s), trade/daily (2min)
     if (source === 'auto') {
       const ok = await shouldCapture(portfolioId, 5000);
+      if (!ok) return;
+    } else if (source === 'trade' || source === 'daily') {
+      const ok = await shouldCapture(portfolioId, 120_000);
       if (!ok) return;
     }
 
