@@ -1,60 +1,87 @@
 
 
-# Inline Time Range Controls with Unified Gain/Loss
+# Fix Portfolio Growth Snapshot Integrity and Time Relevance
 
-## Overview
+## Problems Found
 
-Lift the time range state out of the chart and into the parent, so a single set of range buttons controls both the gain/loss indicator under "INVESTING" and the chart data filtering.
+1. **ALL range uses cost basis instead of first snapshot**: `computeRangeGain` for ALL calculates `currentInvestedValue - costBasis`, but should use the first snapshot's invested value as baseline for consistency with the chart's first visible point.
+
+2. **Daily snapshot check uses time-based threshold (20 hours) instead of calendar-day check**: The current logic (`ageMs >= TWENTY_HOURS`) can miss days or double-capture. Should check "does a snapshot exist for today's date?" instead.
+
+3. **No deduplication guard**: Snapshots within 2 minutes of each other should be prevented (the current 5-second rate limit is too short for daily/trade sources).
+
+4. **Range gain/loss doesn't match chart endpoints**: The gain/loss pill computes from raw snapshots while the chart filters by range cutoff -- these can diverge because `computeRangeGain` looks for baseline BEFORE the cutoff but the chart shows points AFTER the cutoff.
 
 ## Changes
 
-### 1. Modify: `src/components/PortfolioGrowthChart.tsx`
+### 1. Modify: `src/lib/snapshots.ts`
 
-**Externalize range state**
-- Accept `selectedRange` and `onRangeChange` as props instead of managing state internally
-- Remove the `availableRanges` computation and range button rendering from this component
-- Export the `TimeRange` type and `RANGE_MS` constant for use by siblings
-- Keep all chart rendering, hover logic, animation, and stale-while-revalidate behavior unchanged
+**Fix daily snapshot detection**
+- Add a new function `hasSnapshotToday(portfolioId)` that queries for any snapshot where `recorded_at` falls within today's UTC date boundaries
+- Replace the 20-hour threshold check in the page with this calendar-day check
 
-**Expose filtered snapshot data for gain/loss calculation**
-- Add a new prop: `onDataReady?: (snapshots: SnapshotRow[]) => void`
-- Call it whenever `validSnapshots` changes (the full unfiltered set), so the parent can compute range-specific gain/loss from the raw data
+**Add 2-minute deduplication for non-auto sources**
+- Update `shouldCapture` to accept a `minMs` parameter and use 120000 (2 min) for trade/daily sources
+- Add check in `capturePortfolioSnapshot` before inserting
 
-### 2. Modify: `src/components/PerformanceSummary.tsx`
+### 2. Modify: `src/pages/PortfolioDetail.tsx`
 
-**PerformanceHeader changes**
-- Accept new props: `selectedRange`, `onRangeChange`, `availableRanges`, `rangeGain`, `rangeGainPercent`
-- Replace the hardcoded "all-time" gain/loss pill with a dynamic one driven by `rangeGain` / `rangeGainPercent`
-- Render the time range buttons inline, right-aligned on the same row as the gain/loss pill
-- Replace the "all-time" label with the selected range label (e.g., "today", "past week", "past month", "all-time")
-- Active button uses `variant="default"`, others use `variant="ghost"` (existing Button component)
+**Fix `computeRangeGain` for ALL range**
+- ALL range should use the first snapshot's invested value as baseline (not cost basis from current metrics)
+- This ensures the gain/loss pill matches the difference between the first and last chart points
 
-**Layout structure:**
-```
-INVESTING
-$X,XXX.XX
-[Gain/Loss pill + range label]   [1D  1W  1M  ALL]
-```
+**Fix baseline consistency**
+- For 1D/1W/1M: find the nearest snapshot at or before the cutoff timestamp
+- Use that snapshot's `investedValue` as the denominator for percentage calculation
+- Gain = `currentInvestedValue - baseline.investedValue`
+- Percent = `gain / baseline.investedValue`
 
-### 3. Modify: `src/pages/PortfolioDetail.tsx`
+**Fix daily snapshot logic**
+- Replace the 20-hour threshold with `hasSnapshotToday()` from snapshots.ts
+- Ensure a snapshot is created immediately when the user opens the portfolio and none exists for today
 
-**Lift state up**
-- Add `selectedRange` state (default `'1D'`)
-- Add `chartSnapshots` state to receive raw snapshot data from chart's `onDataReady`
-- Compute `availableRanges` based on `portfolio.createdAt`
-- Compute `rangeGain` and `rangeGainPercent` from `chartSnapshots`:
-  - ALL: current invested value minus cost basis (from metrics, same as before)
-  - 1D: current invested P/L minus first snapshot of today's invested P/L
-  - 1W: current invested P/L minus snapshot from 7 days ago
-  - 1M: current invested P/L minus snapshot from 30 days ago
-  - Baseline for percentage: the comparison snapshot's invested value
-  - If no snapshot at exact boundary, use nearest earlier snapshot
-- Pass `selectedRange`, `onRangeChange`, `availableRanges`, `rangeGain`, `rangeGainPercent` to `PerformanceHeader`
-- Pass `selectedRange` and `onRangeChange` to `PortfolioGrowthChart`
+### 3. Verify: `src/components/PortfolioGrowthChart.tsx`
+
+No changes needed -- the chart already:
+- Only displays real snapshot data (no synthetic points)
+- Filters by range cutoff correctly
+- Sorts ascending by timestamp
+- Animates transitions smoothly
+- Pauses updates during hover
 
 ## Technical Details
 
-### Range gain/loss calculation
+### New `hasSnapshotToday` function (snapshots.ts)
+
+```typescript
+export const hasSnapshotToday = async (portfolioId: string): Promise<boolean> => {
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+  const { data } = await supabase
+    .from('value_history')
+    .select('id')
+    .eq('portfolio_id', portfolioId)
+    .gte('recorded_at', startOfDay.toISOString())
+    .lt('recorded_at', endOfDay.toISOString())
+    .limit(1);
+
+  return (data?.length ?? 0) > 0;
+};
+```
+
+### Updated deduplication in `capturePortfolioSnapshot`
+
+```typescript
+// Before insert, check for recent snapshot (2 min for trade/daily)
+if (source === 'trade' || source === 'daily') {
+  const ok = await shouldCapture(portfolioId, 120_000);
+  if (!ok) return;
+}
+```
+
+### Fixed `computeRangeGain`
 
 ```typescript
 function computeRangeGain(
@@ -63,64 +90,65 @@ function computeRangeGain(
   currentInvestedValue: number,
   costBasis: number
 ): { gain: number; percent: number } {
+  if (snapshots.length === 0) return { gain: 0, percent: 0 };
+
   if (range === 'ALL') {
-    const gain = currentInvestedValue - costBasis;
-    const pct = costBasis > 0 ? gain / costBasis : 0;
-    return { gain, percent: pct };
-  }
-
-  const cutoff = Date.now() - RANGE_MS[range];
-  // Find nearest snapshot at or before cutoff
-  const baseline = snapshots
-    .filter(s => s.timestamp <= cutoff && s.investedValue != null && s.costBasis != null)
-    .sort((a, b) => b.timestamp - a.timestamp)[0];
-
-  if (!baseline) {
-    // Fall back to earliest snapshot
-    const earliest = snapshots.find(s => s.investedValue != null);
-    if (!earliest) return { gain: 0, percent: 0 };
-    const baselinePL = (earliest.investedValue ?? 0) - (earliest.costBasis ?? 0);
-    const currentPL = currentInvestedValue - costBasis;
-    const gain = currentPL - baselinePL;
-    const baseVal = earliest.investedValue ?? 1;
+    // Use first snapshot as baseline for consistency with chart
+    const sorted = [...snapshots]
+      .filter(s => s.investedValue != null)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    const first = sorted[0];
+    if (!first) {
+      const gain = currentInvestedValue - costBasis;
+      return { gain, percent: costBasis > 0 ? gain / costBasis : 0 };
+    }
+    const gain = currentInvestedValue - (first.investedValue ?? 0);
+    const baseVal = first.investedValue ?? 1;
     return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
   }
 
-  const baselinePL = (baseline.investedValue ?? 0) - (baseline.costBasis ?? 0);
-  const currentPL = currentInvestedValue - costBasis;
-  const gain = currentPL - baselinePL;
+  const cutoff = Date.now() - RANGE_MS[range];
+  const baseline = snapshots
+    .filter(s => s.timestamp <= cutoff && s.investedValue != null)
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+  if (!baseline) {
+    // Portfolio younger than range -- use first snapshot
+    const sorted = [...snapshots]
+      .filter(s => s.investedValue != null)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    const first = sorted[0];
+    if (!first) return { gain: 0, percent: 0 };
+    const gain = currentInvestedValue - (first.investedValue ?? 0);
+    const baseVal = first.investedValue ?? 1;
+    return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
+  }
+
+  const gain = currentInvestedValue - (baseline.investedValue ?? 0);
   const baseVal = baseline.investedValue ?? 1;
   return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
 }
 ```
 
-### Available ranges logic (moved from chart to parent)
+### Updated daily snapshot effect (PortfolioDetail.tsx)
 
 ```typescript
-const availableRanges = useMemo((): TimeRange[] => {
-  const ageDays = (Date.now() - portfolio.createdAt) / (24 * 60 * 60 * 1000);
-  const ranges: TimeRange[] = ['1D'];
-  if (ageDays >= 2) ranges.push('1W');
-  if (ageDays >= 7) ranges.push('1M');
-  ranges.push('ALL');
-  return ranges;
-}, [portfolio.createdAt]);
+useEffect(() => {
+  if (id && hasFetchedPrices && portfolio && metrics && !dailySnapshotDoneRef.current) {
+    dailySnapshotDoneRef.current = true;
+    hasSnapshotToday(id).then(exists => {
+      if (!exists && portfolio.holdings.length > 0) {
+        capturePortfolioSnapshot(id, portfolio, metrics, 'daily');
+      }
+    });
+  }
+}, [id, hasFetchedPrices, portfolio, metrics]);
 ```
-
-### Range label mapping
-
-| Range | Label |
-|-------|-------|
-| 1D | today |
-| 1W | past week |
-| 1M | past month |
-| ALL | all-time |
 
 ## Files Summary
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/components/PortfolioGrowthChart.tsx` | Modify | Externalize range state, expose snapshot data via callback, remove range buttons |
-| `src/components/PerformanceSummary.tsx` | Modify | Add inline range buttons and dynamic gain/loss to PerformanceHeader |
-| `src/pages/PortfolioDetail.tsx` | Modify | Lift range state, compute range gain/loss, wire props |
+| `src/lib/snapshots.ts` | Modify | Add `hasSnapshotToday`, add 2-min dedup for trade/daily |
+| `src/pages/PortfolioDetail.tsx` | Modify | Fix `computeRangeGain` to use first snapshot for ALL, fix daily snapshot check |
 
