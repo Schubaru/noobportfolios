@@ -6,12 +6,37 @@ import { Badge } from '@/components/ui/badge';
 
 export type TimeRange = '1D' | '1W' | '1M' | 'ALL';
 
-export const RANGE_MS: Record<TimeRange, number> = {
-  '1D': 24 * 60 * 60 * 1000,
-  '1W': 7 * 24 * 60 * 60 * 1000,
-  '1M': 30 * 24 * 60 * 60 * 1000,
-  'ALL': Infinity,
-};
+export function getWindowStart(range: TimeRange): number {
+  const now = Date.now();
+  switch (range) {
+    case '1D': {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    }
+    case '1W': return now - 7 * 24 * 60 * 60 * 1000;
+    case '1M': return now - 30 * 24 * 60 * 60 * 1000;
+    case 'ALL': return 0;
+  }
+}
+
+export function findBaseline(
+  snapshots: SnapshotRow[],
+  windowStart: number
+): SnapshotRow | null {
+  const valid = snapshots.filter(s => s.investedValue != null);
+  if (valid.length === 0) return null;
+
+  const atOrAfter = valid
+    .filter(s => s.timestamp >= windowStart)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  if (atOrAfter.length > 0) return atOrAfter[0];
+
+  const before = valid
+    .filter(s => s.timestamp < windowStart)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  return before[0] ?? null;
+}
 
 interface PortfolioGrowthChartProps {
   portfolioId: string;
@@ -26,7 +51,6 @@ interface ChartPoint {
   timestamp: number;
   investedPL: number;
   source: string | null;
-  _prevValue?: number;
 }
 
 const PASSIVE_REFRESH_MS = 60_000;
@@ -173,15 +197,18 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
 
   const filteredData = useMemo((): ChartPoint[] => {
     const now = Date.now();
-    const cutoff = selectedRange === 'ALL' ? 0 : now - RANGE_MS[selectedRange];
+    const ws = getWindowStart(selectedRange);
+    const baseline = findBaseline(validSnapshots, ws);
+    const baselineValue = baseline?.investedValue ?? 0;
+
     const filtered = validSnapshots
-      .filter(s => s.timestamp >= cutoff)
+      .filter(s => s.timestamp >= ws)
       .sort((a, b) => a.timestamp - b.timestamp);
-    return filtered.map((s, i): ChartPoint => ({
+
+    return filtered.map((s): ChartPoint => ({
       timestamp: s.timestamp,
-      investedPL: (s.investedValue ?? 0) - (s.costBasis ?? 0),
+      investedPL: (s.investedValue ?? 0) - baselineValue,
       source: s.source,
-      _prevValue: i > 0 ? (filtered[i - 1].investedValue ?? 0) - (filtered[i - 1].costBasis ?? 0) : undefined,
     }));
   }, [validSnapshots, selectedRange]);
 
@@ -257,7 +284,7 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
               <XAxis
                 dataKey="timestamp"
                 type="number"
-                domain={['dataMin', 'dataMax']}
+                domain={[getWindowStart(selectedRange), Date.now()]}
                 tickFormatter={xTickFormatter}
                 tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                 axisLine={false}
