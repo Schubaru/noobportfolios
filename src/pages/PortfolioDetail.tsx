@@ -13,7 +13,7 @@ import PortfolioGrowthChart, { TimeRange, RANGE_MS } from '@/components/Portfoli
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
-import { capturePortfolioSnapshot, getLastSnapshotAge, SnapshotRow } from '@/lib/snapshots';
+import { capturePortfolioSnapshot, hasSnapshotToday, SnapshotRow } from '@/lib/snapshots';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
 
@@ -25,34 +25,41 @@ function computeRangeGain(
   currentInvestedValue: number,
   costBasis: number
 ): { gain: number; percent: number } {
+  if (snapshots.length === 0) return { gain: 0, percent: 0 };
+
   if (range === 'ALL') {
-    const gain = currentInvestedValue - costBasis;
-    const pct = costBasis > 0 ? gain / costBasis : 0;
-    return { gain, percent: pct };
-  }
-
-  const cutoff = Date.now() - RANGE_MS[range];
-  const candidates = snapshots
-    .filter(s => s.timestamp <= cutoff && s.investedValue != null && s.costBasis != null)
-    .sort((a, b) => b.timestamp - a.timestamp);
-
-  const baseline = candidates[0];
-
-  if (!baseline) {
-    // Fall back to earliest snapshot
-    const sorted = [...snapshots].filter(s => s.investedValue != null).sort((a, b) => a.timestamp - b.timestamp);
-    const earliest = sorted[0];
-    if (!earliest) return { gain: 0, percent: 0 };
-    const baselinePL = (earliest.investedValue ?? 0) - (earliest.costBasis ?? 0);
-    const currentPL = currentInvestedValue - costBasis;
-    const gain = currentPL - baselinePL;
-    const baseVal = earliest.investedValue ?? 1;
+    // Use first snapshot as baseline for consistency with chart
+    const sorted = [...snapshots]
+      .filter(s => s.investedValue != null)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    const first = sorted[0];
+    if (!first) {
+      const gain = currentInvestedValue - costBasis;
+      return { gain, percent: costBasis > 0 ? gain / costBasis : 0 };
+    }
+    const gain = currentInvestedValue - (first.investedValue ?? 0);
+    const baseVal = first.investedValue ?? 1;
     return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
   }
 
-  const baselinePL = (baseline.investedValue ?? 0) - (baseline.costBasis ?? 0);
-  const currentPL = currentInvestedValue - costBasis;
-  const gain = currentPL - baselinePL;
+  const cutoff = Date.now() - RANGE_MS[range];
+  const baseline = snapshots
+    .filter(s => s.timestamp <= cutoff && s.investedValue != null)
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+  if (!baseline) {
+    // Portfolio younger than range -- use first snapshot
+    const sorted = [...snapshots]
+      .filter(s => s.investedValue != null)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    const first = sorted[0];
+    if (!first) return { gain: 0, percent: 0 };
+    const gain = currentInvestedValue - (first.investedValue ?? 0);
+    const baseVal = first.investedValue ?? 1;
+    return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
+  }
+
+  const gain = currentInvestedValue - (baseline.investedValue ?? 0);
   const baseVal = baseline.investedValue ?? 1;
   return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
 }
@@ -179,9 +186,8 @@ const PortfolioDetail = () => {
   useEffect(() => {
     if (id && hasFetchedPrices && portfolio && metrics && !dailySnapshotDoneRef.current) {
       dailySnapshotDoneRef.current = true;
-      getLastSnapshotAge(id).then(ageMs => {
-        const TWENTY_HOURS = 20 * 60 * 60 * 1000;
-        if (ageMs === null || ageMs >= TWENTY_HOURS) {
+      hasSnapshotToday(id).then(exists => {
+        if (!exists && portfolio.holdings.length > 0) {
           capturePortfolioSnapshot(id, portfolio, metrics, 'daily');
         }
       });
