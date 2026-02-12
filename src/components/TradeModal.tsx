@@ -1147,33 +1147,58 @@ const TradeModal = ({
       });
       if (txError) throw txError;
 
-      // 4. Add value history entry with invested_value
-      // Calculate holdings value (invested assets only, excluding cash)
-      const holdingsValue = portfolio.holdings.reduce((sum, h) => {
+      // 4. Add value history entry with invested_value, cost_basis, and P/L
+      // Calculate holdings value and cost basis after trade
+      let postHoldingsValue = 0;
+      let postCostBasis = 0;
+      
+      for (const h of portfolio.holdings) {
         if (h.symbol === symbolToUse) {
-          // Use updated shares for this holding
           if (tradeType === 'buy') {
-            return sum + (h.currentPrice || h.avgCost) * (h.shares + shareCount);
+            const newShares = h.shares + shareCount;
+            const newAvgCost = ((h.avgCost * h.shares) + (price * shareCount)) / newShares;
+            postHoldingsValue += (h.currentPrice || h.avgCost) * newShares;
+            postCostBasis += newAvgCost * newShares;
           } else {
             const remaining = h.shares - shareCount;
-            return remaining > 0 ? sum + (h.currentPrice || h.avgCost) * remaining : sum;
+            if (remaining > 0.0001) {
+              postHoldingsValue += (h.currentPrice || h.avgCost) * remaining;
+              postCostBasis += h.avgCost * remaining;
+            }
           }
+        } else {
+          postHoldingsValue += (h.currentPrice || h.avgCost) * h.shares;
+          postCostBasis += h.avgCost * h.shares;
         }
-        return sum + (h.currentPrice || h.avgCost) * h.shares;
-      }, 0);
+      }
 
-      // If buying a new asset, add its value
+      // If buying a new asset not in current holdings
       const isNewAsset = !portfolio.holdings.find(h => h.symbol === symbolToUse);
-      const newAssetValue = isNewAsset && tradeType === 'buy' ? price * shareCount : 0;
-      const investedValue = holdingsValue + newAssetValue;
-      const newPortfolioValue = newCash + investedValue;
+      if (isNewAsset && tradeType === 'buy') {
+        postHoldingsValue += price * shareCount;
+        postCostBasis += price * shareCount;
+      }
+
+      const postUnrealizedPL = postHoldingsValue - postCostBasis;
+      
+      // Cumulative realized P/L (existing + this trade)
+      const existingRealizedPL = portfolio.transactions
+        .filter(t => t.type === 'sell' && t.realizedPL !== undefined)
+        .reduce((sum, t) => sum + (t.realizedPL || 0), 0);
+      const postRealizedPL = existingRealizedPL + (realizedPL || 0);
+
+      const newPortfolioValue = newCash + postHoldingsValue;
       const {
         error: valueError
       } = await supabase.from('value_history').insert({
         portfolio_id: portfolio.id,
         value: newPortfolioValue,
-        invested_value: investedValue,
-        source: 'trade'
+        invested_value: postHoldingsValue,
+        cost_basis: postCostBasis,
+        unrealized_pl: postUnrealizedPL,
+        realized_pl: postRealizedPL,
+        source: 'trade',
+        metadata: { tradeSymbol: symbolToUse, tradeType, shares: shareCount, price } as any,
       });
       if (valueError) throw valueError;
 
