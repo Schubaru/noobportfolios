@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Trash2, ArrowRightLeft, Clock } from 'lucide-react';
 import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
-import PerformanceSummary from '@/components/PerformanceSummary';
+import { PerformanceHeader, PerformanceDetails } from '@/components/PerformanceSummary';
 import HoldingsTable from '@/components/HoldingsTable';
 import AllocationChart from '@/components/AllocationChart';
 import TradeModal from '@/components/TradeModal';
@@ -287,22 +287,27 @@ const PortfolioDetail = () => {
           </div>
         </div>
 
-        {/* Performance Summary */}
-        <div className="mb-6">
-          <PerformanceSummary
+        {/* Hero: Investing value + Chart */}
+        <div className="glass-card p-6 mb-6">
+          <PerformanceHeader
             metrics={metrics}
             cash={portfolio.cash}
             startingCash={portfolio.startingCash}
           />
-        </div>
-
-        {/* Portfolio Growth Chart */}
-        <div className="mb-6">
           <PortfolioGrowthChart
             portfolioId={portfolio.id}
             portfolioCreatedAt={portfolio.createdAt}
             snapshotKey={snapshotKey}
             currentUnrealizedPL={metrics.unrealizedPL}
+          />
+        </div>
+
+        {/* Portfolio position */}
+        <div className="mb-6">
+          <PerformanceDetails
+            metrics={metrics}
+            cash={portfolio.cash}
+            startingCash={portfolio.startingCash}
           />
         </div>
 
