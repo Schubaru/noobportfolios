@@ -276,27 +276,39 @@ export type Database = {
       }
       value_history: {
         Row: {
+          cost_basis: number | null
           id: string
           invested_value: number | null
+          metadata: Json | null
           portfolio_id: string
+          realized_pl: number | null
           recorded_at: string
           source: string | null
+          unrealized_pl: number | null
           value: number
         }
         Insert: {
+          cost_basis?: number | null
           id?: string
           invested_value?: number | null
+          metadata?: Json | null
           portfolio_id: string
+          realized_pl?: number | null
           recorded_at?: string
           source?: string | null
+          unrealized_pl?: number | null
           value: number
         }
         Update: {
+          cost_basis?: number | null
           id?: string
           invested_value?: number | null
+          metadata?: Json | null
           portfolio_id?: string
+          realized_pl?: number | null
           recorded_at?: string
           source?: string | null
+          unrealized_pl?: number | null
           value?: number
         }
         Relationships: [

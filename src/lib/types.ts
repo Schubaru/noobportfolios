@@ -25,6 +25,11 @@ export interface Transaction {
 export interface ValueSnapshot {
   timestamp: number;
   value: number;
+  investedValue?: number;
+  costBasis?: number;
+  unrealizedPL?: number;
+  realizedPL?: number;
+  source?: string;
 }
 
 export interface DividendPaymentRecord {

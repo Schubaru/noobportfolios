@@ -9,13 +9,15 @@ import AllocationChart from '@/components/AllocationChart';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
+import PortfolioGrowthChart from '@/components/PortfolioGrowthChart';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
+import { capturePortfolioSnapshot, getLastSnapshotAge } from '@/lib/snapshots';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
 
-const REFRESH_INTERVAL_MS = 20000; // 20 seconds - balanced for Finnhub free tier
+const REFRESH_INTERVAL_MS = 8000;
 
 const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -33,6 +35,8 @@ const PortfolioDetail = () => {
   const [showDividendBreakdown, setShowDividendBreakdown] = useState(false);
   const [hasFetchedPrices, setHasFetchedPrices] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [snapshotKey, setSnapshotKey] = useState(0);
+  const dailySnapshotDoneRef = useRef(false);
   
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isPageVisibleRef = useRef(true);
@@ -40,27 +44,22 @@ const PortfolioDetail = () => {
   const loadPortfolioData = useCallback(async (forceRefresh = false, freshPortfolio?: Portfolio) => {
     if (!id) return;
     
-    // Use fresh portfolio if provided (avoids stale closure), otherwise get from hook state
     const data = freshPortfolio || getPortfolio(id);
     if (!data) {
-      // Portfolio not found - might still be loading
       if (!portfoliosLoading) {
         navigate('/');
       }
       return;
     }
 
-    // Skip fetching prices if we already have them and this isn't a refresh
     if (hasFetchedPrices && !forceRefresh) {
       setIsLoading(false);
       return;
     }
 
-    // Create a copy for local state with updated prices
     let portfolioWithPrices = { ...data, holdings: [...data.holdings] };
     let hasApiErrors = false;
 
-    // Update prices for holdings using real Finnhub API
     if (data.holdings.length > 0) {
       const symbols = data.holdings.map(h => h.symbol);
       
@@ -73,71 +72,87 @@ const PortfolioDetail = () => {
             return {
               ...h,
               currentPrice: quote.price,
-              previousClose: quote.prevClose, // Finnhub's previous close field
+              previousClose: quote.prevClose,
             };
           }
-          // If no quote available, mark as missing data (don't use avgCost fallback for previousClose)
           return {
             ...h,
             currentPrice: h.currentPrice,
-            previousClose: undefined, // Explicitly mark as missing to trigger "—" display
+            previousClose: undefined,
           };
         });
       } catch (error) {
         console.error('Error fetching quotes, using last known prices:', error);
         hasApiErrors = true;
-        // On error, preserve existing prices but don't fake previousClose
         portfolioWithPrices.holdings = data.holdings.map(h => ({
           ...h,
           currentPrice: h.currentPrice ?? h.avgCost,
-          previousClose: undefined, // Don't fake previous close data
+          previousClose: undefined,
         }));
       }
     }
 
     setPortfolio(portfolioWithPrices);
-    setMetrics(calculatePortfolioMetrics(portfolioWithPrices));
+    const newMetrics = calculatePortfolioMetrics(portfolioWithPrices);
+    setMetrics(newMetrics);
     setLastUpdated(new Date());
     setIsLoading(false);
     setHasFetchedPrices(true);
+
+    // Capture snapshot on refresh
+    if (forceRefresh && id) {
+      capturePortfolioSnapshot(id, portfolioWithPrices, newMetrics, 'auto').then(() => {
+        setSnapshotKey(k => k + 1);
+      });
+    }
     
-    // Show toast if API had errors
     if (hasApiErrors && forceRefresh) {
       console.warn('Using last known prices due to market data API issues');
     }
   }, [id, getPortfolio, portfoliosLoading, navigate, hasFetchedPrices]);
 
-  // Load when portfolios are ready - only once
+  // Load when portfolios are ready
   useEffect(() => {
     if (!portfoliosLoading && id && !hasFetchedPrices) {
       loadPortfolioData();
     }
   }, [portfoliosLoading, id, hasFetchedPrices, loadPortfolioData]);
 
-  // Auto-refresh with visibility API - pause when tab is hidden
+  // Opportunistic daily snapshot
+  useEffect(() => {
+    if (id && hasFetchedPrices && portfolio && metrics && !dailySnapshotDoneRef.current) {
+      dailySnapshotDoneRef.current = true;
+      getLastSnapshotAge(id).then(ageMs => {
+        const TWENTY_HOURS = 20 * 60 * 60 * 1000;
+        if (ageMs === null || ageMs >= TWENTY_HOURS) {
+          capturePortfolioSnapshot(id, portfolio, metrics, 'daily').then(() => {
+            setSnapshotKey(k => k + 1);
+          });
+        }
+      });
+    }
+  }, [id, hasFetchedPrices, portfolio, metrics]);
+
+  // Auto-refresh with visibility API
   useEffect(() => {
     const handleVisibilityChange = () => {
       isPageVisibleRef.current = !document.hidden;
       
       if (document.hidden) {
-        // Clear interval when page is hidden
         if (refreshIntervalRef.current) {
           clearInterval(refreshIntervalRef.current);
           refreshIntervalRef.current = null;
         }
       } else {
-        // Resume refresh when page becomes visible
         startAutoRefresh();
       }
     };
 
     const startAutoRefresh = () => {
-      // Clear any existing interval
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
       }
       
-      // Start new interval
       refreshIntervalRef.current = setInterval(() => {
         if (isPageVisibleRef.current && !isRefreshing && portfolio) {
           handleRefresh();
@@ -145,7 +160,6 @@ const PortfolioDetail = () => {
       }, REFRESH_INTERVAL_MS);
     };
 
-    // Initial setup
     document.addEventListener('visibilitychange', handleVisibilityChange);
     if (portfolio && !document.hidden) {
       startAutoRefresh();
@@ -161,8 +175,8 @@ const PortfolioDetail = () => {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await fetchPortfolios(); // Refresh from database
-    await loadPortfolioData(true); // Force refresh with fresh quotes
+    await fetchPortfolios();
+    await loadPortfolioData(true);
     setIsRefreshing(false);
   };
 
@@ -187,12 +201,11 @@ const PortfolioDetail = () => {
   };
 
   const handleTradeComplete = async () => {
-    // Refresh portfolios from database and get fresh data directly
     const freshPortfolios = await fetchPortfolios();
-    // Find this portfolio from the fresh data to avoid stale closure
     const freshPortfolio = freshPortfolios.find(p => p.id === id);
-    // Reload with fresh prices, passing the fresh portfolio
     await loadPortfolioData(true, freshPortfolio);
+    // Trade snapshot is already captured by TradeModal; bump chart key
+    setSnapshotKey(k => k + 1);
   };
 
   if (isLoading || portfoliosLoading) {
@@ -284,6 +297,16 @@ const PortfolioDetail = () => {
             metrics={metrics}
             cash={portfolio.cash}
             startingCash={portfolio.startingCash}
+          />
+        </div>
+
+        {/* Portfolio Growth Chart */}
+        <div className="mb-6">
+          <PortfolioGrowthChart
+            portfolioId={portfolio.id}
+            portfolioCreatedAt={portfolio.createdAt}
+            snapshotKey={snapshotKey}
+            currentUnrealizedPL={metrics.unrealizedPL}
           />
         </div>
 

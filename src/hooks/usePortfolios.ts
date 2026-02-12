@@ -43,6 +43,11 @@ export interface DbValueHistory {
   portfolio_id: string;
   value: number;
   recorded_at: string;
+  invested_value?: number | null;
+  cost_basis?: number | null;
+  unrealized_pl?: number | null;
+  realized_pl?: number | null;
+  source?: string | null;
 }
 
 export interface DbDividendHistory {
@@ -103,6 +108,11 @@ export const usePortfolios = () => {
       valueHistory: valueHistory.map((v): ValueSnapshot => ({
         timestamp: new Date(v.recorded_at).getTime(),
         value: Number(v.value),
+        investedValue: v.invested_value != null ? Number(v.invested_value) : undefined,
+        costBasis: v.cost_basis != null ? Number(v.cost_basis) : undefined,
+        unrealizedPL: v.unrealized_pl != null ? Number(v.unrealized_pl) : undefined,
+        realizedPL: v.realized_pl != null ? Number(v.realized_pl) : undefined,
+        source: v.source ?? undefined,
       })),
       dividendHistory: dividendHistory.map((d): DividendPaymentRecord => ({
         id: d.id,
