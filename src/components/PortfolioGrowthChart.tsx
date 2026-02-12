@@ -3,13 +3,23 @@ import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer, ReferenceDot } fr
 import { fetchSnapshots, SnapshotRow } from '@/lib/snapshots';
 import { formatCurrency } from '@/lib/portfolio';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+
+export type TimeRange = '1D' | '1W' | '1M' | 'ALL';
+
+export const RANGE_MS: Record<TimeRange, number> = {
+  '1D': 24 * 60 * 60 * 1000,
+  '1W': 7 * 24 * 60 * 60 * 1000,
+  '1M': 30 * 24 * 60 * 60 * 1000,
+  'ALL': Infinity,
+};
 
 interface PortfolioGrowthChartProps {
   portfolioId: string;
   portfolioCreatedAt: number;
   snapshotKey: number;
   currentUnrealizedPL?: number;
+  selectedRange: TimeRange;
+  onDataReady?: (snapshots: SnapshotRow[]) => void;
 }
 
 interface ChartPoint {
@@ -18,17 +28,6 @@ interface ChartPoint {
   source: string | null;
   _prevValue?: number;
 }
-
-type TimeRange = '1D' | '1W' | '1M' | '3M' | '1Y' | 'ALL';
-
-const RANGE_MS: Record<TimeRange, number> = {
-  '1D': 24 * 60 * 60 * 1000,
-  '1W': 7 * 24 * 60 * 60 * 1000,
-  '1M': 30 * 24 * 60 * 60 * 1000,
-  '3M': 90 * 24 * 60 * 60 * 1000,
-  '1Y': 365 * 24 * 60 * 60 * 1000,
-  'ALL': Infinity,
-};
 
 const PASSIVE_REFRESH_MS = 60_000;
 
@@ -84,9 +83,8 @@ function CustomTooltip({ active, payload }: any) {
   );
 }
 
-const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, currentUnrealizedPL }: PortfolioGrowthChartProps) => {
+const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, currentUnrealizedPL, selectedRange, onDataReady }: PortfolioGrowthChartProps) => {
   const [allSnapshots, setAllSnapshots] = useState<SnapshotRow[]>([]);
-  const [selectedRange, setSelectedRange] = useState<TimeRange>('ALL');
   const [isFirstLoad, setIsFirstLoad] = useState(true);
 
   const isHoveringRef = useRef(false);
@@ -168,17 +166,10 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     [allSnapshots]
   );
 
-  const availableRanges = useMemo((): TimeRange[] => {
-    const ageMs = Date.now() - portfolioCreatedAt;
-    const ageDays = ageMs / (24 * 60 * 60 * 1000);
-    const ranges: TimeRange[] = ['1D'];
-    if (ageDays >= 2) ranges.push('1W');
-    if (ageDays >= 7) ranges.push('1M');
-    if (ageDays >= 30) ranges.push('3M');
-    if (ageDays >= 90) ranges.push('1Y');
-    ranges.push('ALL');
-    return ranges;
-  }, [portfolioCreatedAt]);
+  // Expose raw snapshots to parent for gain/loss calculation
+  useEffect(() => {
+    onDataReady?.(validSnapshots);
+  }, [validSnapshots, onDataReady]);
 
   const filteredData = useMemo((): ChartPoint[] => {
     const now = Date.now();
@@ -240,23 +231,6 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Time range controls */}
-      <div className="flex justify-end mb-2">
-        <div className="flex gap-1 flex-wrap">
-          {availableRanges.map(range => (
-            <Button
-              key={range}
-              variant={selectedRange === range ? 'default' : 'ghost'}
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => setSelectedRange(range)}
-            >
-              {range}
-            </Button>
-          ))}
-        </div>
-      </div>
-
       {filteredData.length === 0 ? (
         <div className="flex items-center justify-center h-[200px] text-sm text-muted-foreground">
           Your chart will fill in as you trade and check in.

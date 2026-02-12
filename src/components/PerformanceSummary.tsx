@@ -2,6 +2,8 @@ import { TrendingUp, TrendingDown, DollarSign, Wallet, Activity } from 'lucide-r
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { PortfolioMetrics } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { TimeRange } from '@/components/PortfolioGrowthChart';
 
 interface PerformanceSummaryProps {
   metrics: PortfolioMetrics;
@@ -9,12 +11,30 @@ interface PerformanceSummaryProps {
   startingCash: number;
 }
 
+interface PerformanceHeaderProps extends PerformanceSummaryProps {
+  selectedRange: TimeRange;
+  onRangeChange: (range: TimeRange) => void;
+  availableRanges: TimeRange[];
+  rangeGain: number;
+  rangeGainPercent: number;
+}
+
+const RANGE_LABELS: Record<TimeRange, string> = {
+  '1D': 'today',
+  '1W': 'past week',
+  '1M': 'past month',
+  'ALL': 'all-time',
+};
+
 export const PerformanceHeader = ({
   metrics,
-  cash,
-  startingCash
-}: PerformanceSummaryProps) => {
-  const isPositiveUnrealized = metrics.unrealizedPL >= 0;
+  selectedRange,
+  onRangeChange,
+  availableRanges,
+  rangeGain,
+  rangeGainPercent,
+}: PerformanceHeaderProps) => {
+  const isPositive = rangeGain >= 0;
   const hasHoldings = metrics.holdingsValue > 0;
 
   return (
@@ -26,18 +46,33 @@ export const PerformanceHeader = ({
         {formatCurrency(metrics.holdingsValue)}
       </p>
       {hasHoldings && (
-        <div className="flex items-center gap-3 mt-2">
-          <div className={cn(
-            "flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium",
-            isPositiveUnrealized ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-          )}>
-            {isPositiveUnrealized ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-            <span>{isPositiveUnrealized ? '+' : ''}{formatCurrency(metrics.unrealizedPL)}</span>
-            <span className="text-xs opacity-80">
-              ({formatPercent(metrics.allTimePLPercent)})
-            </span>
+        <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium",
+              isPositive ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+            )}>
+              {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+              <span>{isPositive ? '+' : ''}{formatCurrency(rangeGain)}</span>
+              <span className="text-xs opacity-80">
+                ({formatPercent(rangeGainPercent)})
+              </span>
+            </div>
+            <span className="text-xs text-muted-foreground">{RANGE_LABELS[selectedRange]}</span>
           </div>
-          <span className="text-xs text-muted-foreground">all-time</span>
+          <div className="flex gap-1">
+            {availableRanges.map(range => (
+              <Button
+                key={range}
+                variant={selectedRange === range ? 'default' : 'ghost'}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onRangeChange(range)}
+              >
+                {range}
+              </Button>
+            ))}
+          </div>
         </div>
       )}
       {!hasHoldings && (
@@ -143,7 +178,16 @@ const PerformanceSummary = ({
   return (
     <div>
       <div className="glass-card p-6">
-        <PerformanceHeader metrics={metrics} cash={cash} startingCash={startingCash} />
+        <PerformanceHeader
+          metrics={metrics}
+          cash={cash}
+          startingCash={startingCash}
+          selectedRange="ALL"
+          onRangeChange={() => {}}
+          availableRanges={['ALL']}
+          rangeGain={metrics.unrealizedPL}
+          rangeGainPercent={metrics.allTimePLPercent}
+        />
       </div>
       <div className="mt-6">
         <PerformanceDetails metrics={metrics} cash={cash} startingCash={startingCash} />
