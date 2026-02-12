@@ -9,11 +9,11 @@ import AllocationChart from '@/components/AllocationChart';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
-import PortfolioGrowthChart, { TimeRange, RANGE_MS } from '@/components/PortfolioGrowthChart';
+import PortfolioGrowthChart, { TimeRange, getWindowStart, findBaseline } from '@/components/PortfolioGrowthChart';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
-import { capturePortfolioSnapshot, hasSnapshotToday, SnapshotRow } from '@/lib/snapshots';
+import { capturePortfolioSnapshot, hasSnapshotToday, ensureRecentSnapshot, SnapshotRow } from '@/lib/snapshots';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
 
@@ -22,46 +22,17 @@ const REFRESH_INTERVAL_MS = 8000;
 function computeRangeGain(
   snapshots: SnapshotRow[],
   range: TimeRange,
-  currentInvestedValue: number,
-  costBasis: number
+  currentInvestedValue: number
 ): { gain: number; percent: number } {
   if (snapshots.length === 0) return { gain: 0, percent: 0 };
 
-  if (range === 'ALL') {
-    // Use first snapshot as baseline for consistency with chart
-    const sorted = [...snapshots]
-      .filter(s => s.investedValue != null)
-      .sort((a, b) => a.timestamp - b.timestamp);
-    const first = sorted[0];
-    if (!first) {
-      const gain = currentInvestedValue - costBasis;
-      return { gain, percent: costBasis > 0 ? gain / costBasis : 0 };
-    }
-    const gain = currentInvestedValue - (first.investedValue ?? 0);
-    const baseVal = first.investedValue ?? 1;
-    return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
-  }
+  const windowStart = getWindowStart(range);
+  const baseline = findBaseline(snapshots, windowStart);
+  if (!baseline || baseline.investedValue == null) return { gain: 0, percent: 0 };
 
-  const cutoff = Date.now() - RANGE_MS[range];
-  const baseline = snapshots
-    .filter(s => s.timestamp <= cutoff && s.investedValue != null)
-    .sort((a, b) => b.timestamp - a.timestamp)[0];
-
-  if (!baseline) {
-    // Portfolio younger than range -- use first snapshot
-    const sorted = [...snapshots]
-      .filter(s => s.investedValue != null)
-      .sort((a, b) => a.timestamp - b.timestamp);
-    const first = sorted[0];
-    if (!first) return { gain: 0, percent: 0 };
-    const gain = currentInvestedValue - (first.investedValue ?? 0);
-    const baseVal = first.investedValue ?? 1;
-    return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
-  }
-
-  const gain = currentInvestedValue - (baseline.investedValue ?? 0);
-  const baseVal = baseline.investedValue ?? 1;
-  return { gain, percent: baseVal > 0 ? gain / baseVal : 0 };
+  const gain = currentInvestedValue - baseline.investedValue;
+  const pct = baseline.investedValue > 0 ? gain / baseline.investedValue : 0;
+  return { gain, percent: pct };
 }
 
 const PortfolioDetail = () => {
@@ -102,7 +73,7 @@ const PortfolioDetail = () => {
 
   const { rangeGain, rangeGainPercent } = useMemo(() => {
     if (!metrics) return { rangeGain: 0, rangeGainPercent: 0 };
-    const result = computeRangeGain(chartSnapshots, selectedRange, metrics.holdingsValue, metrics.costBasis);
+    const result = computeRangeGain(chartSnapshots, selectedRange, metrics.holdingsValue);
     return { rangeGain: result.gain, rangeGainPercent: result.percent };
   }, [chartSnapshots, selectedRange, metrics]);
 
@@ -183,6 +154,14 @@ const PortfolioDetail = () => {
     }
   }, [portfoliosLoading, id, hasFetchedPrices, loadPortfolioData]);
 
+  // Ensure baseline snapshot on open (if last snapshot > 15 min)
+  useEffect(() => {
+    if (id && hasFetchedPrices && portfolio && metrics) {
+      ensureRecentSnapshot(id, portfolio, metrics);
+    }
+  }, [id, hasFetchedPrices, portfolio, metrics]);
+
+  // Daily snapshot (once per calendar day)
   useEffect(() => {
     if (id && hasFetchedPrices && portfolio && metrics && !dailySnapshotDoneRef.current) {
       dailySnapshotDoneRef.current = true;

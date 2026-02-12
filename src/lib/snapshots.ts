@@ -44,11 +44,11 @@ export const capturePortfolioSnapshot = async (
   portfolioId: string,
   portfolio: Portfolio,
   metrics: PortfolioMetrics,
-  source: 'auto' | 'trade' | 'daily'
+  source: 'auto' | 'trade' | 'daily' | 'baseline'
 ): Promise<void> => {
   try {
-    // Rate-limit auto snapshots (5s), trade/daily (2min)
-    if (source === 'auto') {
+    // Rate-limit: auto/baseline = 5s, trade/daily = 2min
+    if (source === 'auto' || source === 'baseline') {
       const ok = await shouldCapture(portfolioId, 5000);
       if (!ok) return;
     } else if (source === 'trade' || source === 'daily') {
@@ -116,4 +116,17 @@ export const getLastSnapshotAge = async (portfolioId: string): Promise<number | 
     .limit(1);
   if (!data?.length) return null;
   return Date.now() - new Date(data[0].recorded_at).getTime();
+};
+
+export const ensureRecentSnapshot = async (
+  portfolioId: string,
+  portfolio: Portfolio,
+  metrics: PortfolioMetrics
+): Promise<void> => {
+  if (portfolio.holdings.length === 0) return;
+  const age = await getLastSnapshotAge(portfolioId);
+  // Create if no snapshots or last one > 15 min old
+  if (age === null || age >= 15 * 60 * 1000) {
+    await capturePortfolioSnapshot(portfolioId, portfolio, metrics, 'baseline');
+  }
 };
