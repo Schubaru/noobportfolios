@@ -43,6 +43,7 @@ interface PortfolioGrowthChartProps {
   portfolioCreatedAt: number;
   snapshotKey: number;
   currentUnrealizedPL?: number;
+  currentInvestedValue?: number;
   selectedRange: TimeRange;
   onDataReady?: (snapshots: SnapshotRow[]) => void;
 }
@@ -121,7 +122,7 @@ function CustomTooltip({ active, payload }: any) {
   );
 }
 
-const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, currentUnrealizedPL, selectedRange, onDataReady }: PortfolioGrowthChartProps) => {
+const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, currentUnrealizedPL, currentInvestedValue, selectedRange, onDataReady }: PortfolioGrowthChartProps) => {
   const [allSnapshots, setAllSnapshots] = useState<SnapshotRow[]>([]);
   const [isFirstLoad, setIsFirstLoad] = useState(true);
 
@@ -216,20 +217,42 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
 
   const filteredData = useMemo((): ChartPoint[] => {
     const baseline = findBaseline(validSnapshots, windowStart);
-    const baselineValue = baseline?.investedValue ?? 0;
+    if (!baseline) return [];
+    const baselineValue = baseline.investedValue ?? 0;
 
     const filtered = validSnapshots
       .filter(s => s.timestamp >= windowStart)
       .sort((a, b) => a.timestamp - b.timestamp);
 
-    const mapped = filtered.map((s): ChartPoint => ({
-      timestamp: s.timestamp,
-      investedPL: (s.investedValue ?? 0) - baselineValue,
-      source: s.source,
-    }));
+    // Start with baseline anchor at the left edge (P/L = 0 at baseline)
+    const points: ChartPoint[] = [{
+      timestamp: windowStart,
+      investedPL: 0,
+      source: null,
+    }];
 
-    return downsample(mapped);
-  }, [validSnapshots, windowStart]);
+    // Add all in-window snapshots
+    for (const s of filtered) {
+      points.push({
+        timestamp: s.timestamp,
+        investedPL: (s.investedValue ?? 0) - baselineValue,
+        source: s.source,
+      });
+    }
+
+    // Append a "now" point at the right edge using live invested value
+    const lastSnapshotValue = filtered.length > 0
+      ? (filtered[filtered.length - 1].investedValue ?? 0)
+      : baselineValue;
+    const nowValue = currentInvestedValue ?? lastSnapshotValue;
+    points.push({
+      timestamp: windowEnd,
+      investedPL: nowValue - baselineValue,
+      source: null,
+    });
+
+    return downsample(points);
+  }, [validSnapshots, windowStart, windowEnd, currentInvestedValue]);
 
   const yDomain = useMemo((): [number, number] => {
     if (filteredData.length === 0) return [-10, 10];
@@ -277,18 +300,9 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {filteredData.length === 0 ? (
+      {filteredData.length < 2 ? (
         <div className="flex items-center justify-center h-[200px] text-sm text-muted-foreground">
           Your chart will fill in as you trade and check in.
-        </div>
-      ) : filteredData.length === 1 ? (
-        <div className="flex flex-col items-center justify-center h-[200px]">
-          <p className={`text-2xl font-bold ${filteredData[0].investedPL >= 0 ? 'text-success' : 'text-destructive'}`}>
-            {formatPLValue(filteredData[0].investedPL)}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {new Date(filteredData[0].timestamp).toLocaleString()}
-          </p>
         </div>
       ) : (
         <div className="h-[220px]">
