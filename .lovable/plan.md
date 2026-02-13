@@ -1,102 +1,91 @@
 
 
-# Fix Portfolio Performance Chart: Full-Width Time Axis
+# Fix Chart to Always Show a Full Left-to-Right Line
 
 ## Root Cause
 
-Two issues cause the chart to collapse into a vertical line for 1W/1M:
+Two critical issues prevent the Robinhood-style full-width line:
 
-1. **Missing `allowDataOverflow` on XAxis**: Recharts ignores the `domain` prop when data doesn't fill the domain unless `allowDataOverflow={true}` is set. Without it, the axis auto-shrinks to fit only the actual data points.
+1. **Baseline point is never plotted**: `findBaseline` finds the reference snapshot (often before `windowStart`), uses its value for P/L math, but the point itself is excluded from `filteredData` (which only includes `timestamp >= windowStart`). When ALL data is before the window (like 1D when no recent snapshots exist), the chart shows "no data."
 
-2. **~7,500 data points**: Auto-snapshots every 8 seconds create thousands of near-identical points. This overwhelms Recharts and provides no visual value. The data needs downsampling before rendering.
+2. **No "current" endpoint**: The line ends at the last snapshot timestamp (could be hours old), not at "now." This prevents the line from reaching the right edge.
 
-3. **`scale` should be `"time"`**: For proper time-axis behavior in Recharts, XAxis should use `scale="time"` alongside `type="number"`.
+## Fix (in `PortfolioGrowthChart.tsx`)
 
-## Data Profile
+### Change 1: Inject a baseline anchor point at `windowStart`
 
-The portfolio has snapshots on 4 days:
-- Jan 27: 1 point (null invested_value)
-- Jan 30: 1 point
-- Feb 11: 2,906 points
-- Feb 12: 4,597 points
-
-For 1W (Feb 5 to Feb 12), all data is on Feb 11-12. The domain should show a full 7-day window with the line in the right portion -- but currently it collapses because Recharts ignores the domain.
-
-## Changes
-
-### Modify: `src/components/PortfolioGrowthChart.tsx`
-
-**Fix 1 -- Add `allowDataOverflow` and `scale="time"` to XAxis**
-
-```tsx
-<XAxis
-  dataKey="timestamp"
-  type="number"
-  scale="time"
-  domain={[windowStart, windowEnd]}
-  allowDataOverflow={true}
-  ...
-/>
-```
-
-This forces Recharts to respect the explicit domain even when data doesn't span the full window.
-
-**Fix 2 -- Downsample data points**
-
-Add a `downsample` function that limits rendered points to ~200 max. Algorithm:
-- If data has <= 200 points, use as-is
-- Otherwise, always keep first point, last point, and all trade-source points
-- Distribute remaining budget evenly across the array by index stepping
-- This preserves the shape of the line while drastically reducing render load
+After computing the baseline, add a synthetic chart point at `x = windowStart` with `y = 0` (since P/L is relative to baseline, the baseline's own P/L is always 0). This anchors the line to the left edge.
 
 ```typescript
-function downsample(points: ChartPoint[], maxPoints = 200): ChartPoint[] {
-  if (points.length <= maxPoints) return points;
+// Start with baseline anchor at the left edge
+const points: ChartPoint[] = [{
+  timestamp: windowStart,
+  investedPL: 0,
+  source: null,
+}];
 
-  const result: ChartPoint[] = [];
-  const step = (points.length - 1) / (maxPoints - 1);
-
-  for (let i = 0; i < maxPoints; i++) {
-    const idx = Math.round(i * step);
-    result.push(points[idx]);
-  }
-
-  // Ensure trade dots are included
-  const resultSet = new Set(result);
-  for (const p of points) {
-    if (p.source === 'trade' && !resultSet.has(p)) {
-      result.push(p);
-    }
-  }
-
-  return result.sort((a, b) => a.timestamp - b.timestamp);
+// Add all in-window snapshots
+for (const s of filtered) {
+  points.push({
+    timestamp: s.timestamp,
+    investedPL: (s.investedValue ?? 0) - baselineValue,
+    source: s.source,
+  });
 }
 ```
 
-Apply after filtering: `filteredData = downsample(filtered.map(...))`.
+### Change 2: Append a "now" point at `windowEnd`
 
-**Fix 3 -- Memoize windowStart/windowEnd**
+Add a point at `windowEnd` using the current live P/L (the last known invested value minus baseline). This extends the line to the right edge.
 
-Compute `windowStart` and `windowEnd` as memoized values used by both the `filteredData` computation and the XAxis domain, so they're consistent within a single render:
+The component already receives `currentUnrealizedPL` but that's absolute P/L. Instead, we'll need to pass the current `holdingsValue` from the parent so we can compute range-relative P/L for the endpoint. However, to keep changes minimal, we can use the last snapshot's invested value as the "current" value (it's updated every 8 seconds via auto-refresh, so it's effectively live).
 
 ```typescript
-const { windowStart, windowEnd } = useMemo(() => ({
-  windowStart: getWindowStart(selectedRange),
-  windowEnd: Date.now(),
-}), [selectedRange]);
+// Extend line to the right edge using last known value
+const lastValue = filtered.length > 0
+  ? (filtered[filtered.length - 1].investedValue ?? 0)
+  : baselineValue;
+
+points.push({
+  timestamp: windowEnd,
+  investedPL: lastValue - baselineValue,
+  source: null,
+});
 ```
 
-Pass these directly to `domain={[windowStart, windowEnd]}` instead of calling `getWindowStart` again in JSX.
+### Change 3: Remove the empty/single-point states
 
-**Fix 4 -- Hide XAxis (keep existing minimal style)**
+With the baseline anchor and "now" endpoint, there will always be at least 2 points when a baseline exists. The empty state should only show when there are truly zero snapshots (brand new portfolio with no holdings).
 
-The current design uses a hidden Y-axis and minimal chart. Keep `hide={true}` or `tick={false}` on XAxis to maintain the clean look -- the domain enforcement matters for scaling, not for visible tick labels.
+### Change 4: Pass `currentInvestedValue` prop for live right-edge
+
+To make the right-edge point reflect the live price (not the last snapshot which could be stale), add a `currentInvestedValue` prop from the parent. The parent already computes `metrics.holdingsValue` which is the live invested value.
+
+In `PortfolioDetail.tsx`, pass it:
+```tsx
+<PortfolioGrowthChart
+  ...
+  currentInvestedValue={metrics.holdingsValue}
+/>
+```
+
+In the chart, use it for the right-edge point:
+```typescript
+const nowPL = (currentInvestedValue ?? lastSnapshotValue) - baselineValue;
+points.push({ timestamp: windowEnd, investedPL: nowPL, source: null });
+```
+
+## Why This Fixes Each Bug
+
+- **1D empty**: The baseline (last snapshot before midnight) gets anchored at midnight with P/L = 0, and the "now" point shows current P/L. Line spans midnight-to-now.
+- **1W/1M vertical cluster**: The baseline anchor at `windowStart` (7/30 days ago) puts a point at the far left. Data points fill the middle/right. Line spans full width.
+- **Range switching**: Each range recomputes `windowStart/windowEnd`, re-finds baseline, rebuilds anchor + data + endpoint. Smooth transition via animation.
+- **Gain/loss pill matches chart**: Both use `findBaseline` with the same `windowStart`. The pill shows `currentInvestedValue - baseline`, and the chart's rightmost point shows the same value.
 
 ## Files Summary
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `src/components/PortfolioGrowthChart.tsx` | Modify | Add `allowDataOverflow`, `scale="time"`, downsample data, memoize window bounds |
-
-No changes needed to `snapshots.ts` or `PortfolioDetail.tsx` -- the snapshot creation and gain/loss calculation logic is already correct.
+| `src/components/PortfolioGrowthChart.tsx` | Modify | Add baseline anchor point at left edge, "now" point at right edge, accept `currentInvestedValue` prop |
+| `src/pages/PortfolioDetail.tsx` | Modify | Pass `currentInvestedValue={metrics.holdingsValue}` to chart |
 
