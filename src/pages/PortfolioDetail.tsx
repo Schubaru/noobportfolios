@@ -346,6 +346,7 @@ const PortfolioDetail = () => {
             portfolioCreatedAt={portfolio.createdAt}
             snapshotKey={snapshotKey}
             currentUnrealizedPL={metrics.unrealizedPL}
+            currentInvestedValue={metrics.holdingsValue}
             selectedRange={selectedRange}
             onDataReady={handleDataReady}
           />
