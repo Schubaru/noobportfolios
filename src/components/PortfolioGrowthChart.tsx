@@ -22,11 +22,21 @@ export function getWindowStart(range: TimeRange): number {
 
 export function findBaseline(
   snapshots: SnapshotRow[],
-  windowStart: number
+  windowStart: number,
+  range?: TimeRange
 ): SnapshotRow | null {
   const valid = snapshots.filter(s => s.investedValue != null);
   if (valid.length === 0) return null;
 
+  // For 1D: always use the last snapshot BEFORE midnight (yesterday's close)
+  if (range === '1D') {
+    const before = valid
+      .filter(s => s.timestamp < windowStart)
+      .sort((a, b) => b.timestamp - a.timestamp);
+    return before[0] ?? valid.sort((a, b) => a.timestamp - b.timestamp)[0] ?? null;
+  }
+
+  // For 1W/1M/ALL: prefer first snapshot at/after windowStart, fallback to nearest before
   const atOrAfter = valid
     .filter(s => s.timestamp >= windowStart)
     .sort((a, b) => a.timestamp - b.timestamp);
@@ -216,7 +226,7 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
   }), [selectedRange]);
 
   const filteredData = useMemo((): ChartPoint[] => {
-    const baseline = findBaseline(validSnapshots, windowStart);
+    const baseline = findBaseline(validSnapshots, windowStart, selectedRange);
     if (!baseline) return [];
     const baselineValue = baseline.investedValue ?? 0;
 
