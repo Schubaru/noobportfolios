@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
 import { fetchSnapshots, SnapshotRow } from '@/lib/snapshots';
 import { formatCurrency } from '@/lib/portfolio';
 import { Badge } from '@/components/ui/badge';
@@ -278,6 +278,9 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
     return [lo, hi];
   }, [filteredData]);
 
+  const isFlat = filteredData.length >= 2 &&
+    filteredData.every(d => d.investedPL === filteredData[0].investedPL);
+
   const latestPL = filteredData.length > 0 ? filteredData[filteredData.length - 1].investedPL : 0;
   const lineColor = latestPL >= 0 ? 'hsl(var(--chart-positive))' : 'hsl(var(--chart-negative))';
   const gradientId = `pl-gradient-${portfolioId}`;
@@ -332,6 +335,7 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
                 allowDataOverflow={true}
                 hide
               />
+              <YAxis domain={yDomain} hide />
               <Tooltip content={<CustomTooltip />} />
               <Area
                 type="monotone"
@@ -359,6 +363,11 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
             </AreaChart>
           </ResponsiveContainer>
         </div>
+      )}
+      {isFlat && filteredData.length >= 2 && (
+        <p className="text-center text-xs text-muted-foreground mt-1">
+          Markets are closed — your chart will update when trading resumes.
+        </p>
       )}
     </div>
   );
