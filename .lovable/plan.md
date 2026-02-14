@@ -1,72 +1,56 @@
 
 
-# Fix 1D Baseline to Use Yesterday's Close
+# Fix 1D Chart: Center Flat Lines and Add Market-Closed Context
 
-## The Correct Behavior (Robinhood-style)
+## Problem Analysis
 
-1D shows **today's gain/loss relative to yesterday's closing portfolio value**. The chart line starts at $0 on the left (representing yesterday's close) and moves up/down showing how the portfolio performed today. Each new day, it resets.
+The 1D chart IS rendering data -- the green line at the bottom is a flat line at $0.00 P/L. Two issues make it look broken:
 
-## The Bug
+1. **Y-axis domain not applied**: The `yDomain` is computed with proper padding ([-5, 5] for flat data) but never passed to a `<YAxis>` component. Recharts auto-scales the Y axis, pushing the flat line to the bottom edge instead of centering it.
 
-`findBaseline` currently **prefers the first snapshot AT or AFTER `windowStart` (midnight)**. For 1D, this means it picks today's first snapshot as the baseline -- so the chart shows "change since this morning," not "change since yesterday's close." The gain/loss pill has the same issue since it calls the same function.
+2. **No user context**: When the market is closed and the line is flat, users think the chart is empty. A subtle indicator like "Market closed" or "Markets open at 9:30 AM ET" would clarify.
 
-The fix: for 1D, always use the **last snapshot BEFORE midnight** as baseline (the "previous close" equivalent). For 1W, 1M, and ALL, the current logic (nearest snapshot to `windowStart`) is fine.
+3. **Pill vs. Today card discrepancy**: The 1D pill uses snapshot-based comparison while the "Today" card uses Finnhub's `previousClose`. This is actually correct behavior -- they measure different things -- but when the market opens and new snapshots arrive, both will converge. No code change needed for this.
 
 ## Changes
 
 ### File: `src/components/PortfolioGrowthChart.tsx`
 
-Update `findBaseline` to accept the range and change behavior for 1D:
+**1. Add a hidden YAxis with the computed domain**
 
-```typescript
-export function findBaseline(
-  snapshots: SnapshotRow[],
-  windowStart: number,
-  range?: TimeRange
-): SnapshotRow | null {
-  const valid = snapshots.filter(s => s.investedValue != null);
-  if (valid.length === 0) return null;
+Add a `<YAxis>` component that's hidden but enforces the computed `yDomain`. This centers the flat line vertically when all values are near zero.
 
-  // For 1D: always use the last snapshot BEFORE midnight (yesterday's close)
-  if (range === '1D') {
-    const before = valid
-      .filter(s => s.timestamp < windowStart)
-      .sort((a, b) => b.timestamp - a.timestamp);
-    // If no snapshot before midnight, fall back to first available
-    return before[0] ?? valid.sort((a, b) => a.timestamp - b.timestamp)[0] ?? null;
-  }
+```tsx
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ... } from 'recharts';
 
-  // For 1W/1M/ALL: prefer first snapshot at/after windowStart, fallback to nearest before
-  const atOrAfter = valid
-    .filter(s => s.timestamp >= windowStart)
-    .sort((a, b) => a.timestamp - b.timestamp);
-  if (atOrAfter.length > 0) return atOrAfter[0];
-
-  const before = valid
-    .filter(s => s.timestamp < windowStart)
-    .sort((a, b) => b.timestamp - a.timestamp);
-  return before[0] ?? null;
-}
+// Inside the AreaChart:
+<YAxis
+  domain={yDomain}
+  hide
+/>
 ```
 
-Update all call sites of `findBaseline` to pass the range:
+**2. Show contextual message when line is flat (market closed)**
 
-1. In `filteredData` memo: `findBaseline(validSnapshots, windowStart, selectedRange)`
-2. In `PortfolioDetail.tsx` `computeRangeGain`: `findBaseline(snapshots, windowStart, range)`
+When all chart points have the same P/L value (flat line), show a subtle "Markets are closed" message overlaid on or below the chart, so users understand why there's no movement. This only shows when the data range is truly flat -- not when the chart is empty.
 
-No other files need changes. The anchor point at `windowStart` with `investedPL: 0` and the "now" endpoint remain correct -- they just use yesterday's close as the zero reference instead of today's first snapshot.
+```tsx
+const isFlat = filteredData.length >= 2 &&
+  filteredData.every(d => d.investedPL === filteredData[0].investedPL);
 
-## Why This Is Correct
-
-- **Morning open**: Yesterday's last snapshot becomes baseline. First snapshot today shows overnight gap. Line shows full day's movement.
-- **No snapshots yesterday**: Falls back to earliest available snapshot. Chart still works.
-- **Gain/loss pill**: Uses same `findBaseline` with `range='1D'`, so pill matches chart endpoint.
-- **1W/1M/ALL**: Unchanged behavior -- baseline is nearest snapshot to window start.
+// Render inside the chart container:
+{isFlat && (
+  <p className="text-center text-xs text-muted-foreground mt-1">
+    Markets are closed -- your chart will update when trading resumes.
+  </p>
+)}
+```
 
 ## Files Summary
 
 | File | Change |
 |------|--------|
-| `src/components/PortfolioGrowthChart.tsx` | Add `range` param to `findBaseline`, use "before midnight" logic for 1D |
-| `src/pages/PortfolioDetail.tsx` | Pass `range` to `findBaseline` in `computeRangeGain` |
+| `src/components/PortfolioGrowthChart.tsx` | Add hidden `YAxis` with `yDomain`, add "markets closed" message for flat lines |
+
+No changes to other files. The snapshot logic, baseline calculation, and gain/loss pill are all correct.
 
