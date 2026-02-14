@@ -335,7 +335,7 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
                 allowDataOverflow={true}
                 hide
               />
-              <YAxis domain={yDomain} hide />
+              <YAxis domain={yDomain} type="number" hide />
               <Tooltip content={<CustomTooltip />} />
               <Area
                 type="monotone"
