@@ -1,91 +1,72 @@
 
 
-# Fix Chart to Always Show a Full Left-to-Right Line
+# Fix 1D Baseline to Use Yesterday's Close
 
-## Root Cause
+## The Correct Behavior (Robinhood-style)
 
-Two critical issues prevent the Robinhood-style full-width line:
+1D shows **today's gain/loss relative to yesterday's closing portfolio value**. The chart line starts at $0 on the left (representing yesterday's close) and moves up/down showing how the portfolio performed today. Each new day, it resets.
 
-1. **Baseline point is never plotted**: `findBaseline` finds the reference snapshot (often before `windowStart`), uses its value for P/L math, but the point itself is excluded from `filteredData` (which only includes `timestamp >= windowStart`). When ALL data is before the window (like 1D when no recent snapshots exist), the chart shows "no data."
+## The Bug
 
-2. **No "current" endpoint**: The line ends at the last snapshot timestamp (could be hours old), not at "now." This prevents the line from reaching the right edge.
+`findBaseline` currently **prefers the first snapshot AT or AFTER `windowStart` (midnight)**. For 1D, this means it picks today's first snapshot as the baseline -- so the chart shows "change since this morning," not "change since yesterday's close." The gain/loss pill has the same issue since it calls the same function.
 
-## Fix (in `PortfolioGrowthChart.tsx`)
+The fix: for 1D, always use the **last snapshot BEFORE midnight** as baseline (the "previous close" equivalent). For 1W, 1M, and ALL, the current logic (nearest snapshot to `windowStart`) is fine.
 
-### Change 1: Inject a baseline anchor point at `windowStart`
+## Changes
 
-After computing the baseline, add a synthetic chart point at `x = windowStart` with `y = 0` (since P/L is relative to baseline, the baseline's own P/L is always 0). This anchors the line to the left edge.
+### File: `src/components/PortfolioGrowthChart.tsx`
+
+Update `findBaseline` to accept the range and change behavior for 1D:
 
 ```typescript
-// Start with baseline anchor at the left edge
-const points: ChartPoint[] = [{
-  timestamp: windowStart,
-  investedPL: 0,
-  source: null,
-}];
+export function findBaseline(
+  snapshots: SnapshotRow[],
+  windowStart: number,
+  range?: TimeRange
+): SnapshotRow | null {
+  const valid = snapshots.filter(s => s.investedValue != null);
+  if (valid.length === 0) return null;
 
-// Add all in-window snapshots
-for (const s of filtered) {
-  points.push({
-    timestamp: s.timestamp,
-    investedPL: (s.investedValue ?? 0) - baselineValue,
-    source: s.source,
-  });
+  // For 1D: always use the last snapshot BEFORE midnight (yesterday's close)
+  if (range === '1D') {
+    const before = valid
+      .filter(s => s.timestamp < windowStart)
+      .sort((a, b) => b.timestamp - a.timestamp);
+    // If no snapshot before midnight, fall back to first available
+    return before[0] ?? valid.sort((a, b) => a.timestamp - b.timestamp)[0] ?? null;
+  }
+
+  // For 1W/1M/ALL: prefer first snapshot at/after windowStart, fallback to nearest before
+  const atOrAfter = valid
+    .filter(s => s.timestamp >= windowStart)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  if (atOrAfter.length > 0) return atOrAfter[0];
+
+  const before = valid
+    .filter(s => s.timestamp < windowStart)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  return before[0] ?? null;
 }
 ```
 
-### Change 2: Append a "now" point at `windowEnd`
+Update all call sites of `findBaseline` to pass the range:
 
-Add a point at `windowEnd` using the current live P/L (the last known invested value minus baseline). This extends the line to the right edge.
+1. In `filteredData` memo: `findBaseline(validSnapshots, windowStart, selectedRange)`
+2. In `PortfolioDetail.tsx` `computeRangeGain`: `findBaseline(snapshots, windowStart, range)`
 
-The component already receives `currentUnrealizedPL` but that's absolute P/L. Instead, we'll need to pass the current `holdingsValue` from the parent so we can compute range-relative P/L for the endpoint. However, to keep changes minimal, we can use the last snapshot's invested value as the "current" value (it's updated every 8 seconds via auto-refresh, so it's effectively live).
+No other files need changes. The anchor point at `windowStart` with `investedPL: 0` and the "now" endpoint remain correct -- they just use yesterday's close as the zero reference instead of today's first snapshot.
 
-```typescript
-// Extend line to the right edge using last known value
-const lastValue = filtered.length > 0
-  ? (filtered[filtered.length - 1].investedValue ?? 0)
-  : baselineValue;
+## Why This Is Correct
 
-points.push({
-  timestamp: windowEnd,
-  investedPL: lastValue - baselineValue,
-  source: null,
-});
-```
-
-### Change 3: Remove the empty/single-point states
-
-With the baseline anchor and "now" endpoint, there will always be at least 2 points when a baseline exists. The empty state should only show when there are truly zero snapshots (brand new portfolio with no holdings).
-
-### Change 4: Pass `currentInvestedValue` prop for live right-edge
-
-To make the right-edge point reflect the live price (not the last snapshot which could be stale), add a `currentInvestedValue` prop from the parent. The parent already computes `metrics.holdingsValue` which is the live invested value.
-
-In `PortfolioDetail.tsx`, pass it:
-```tsx
-<PortfolioGrowthChart
-  ...
-  currentInvestedValue={metrics.holdingsValue}
-/>
-```
-
-In the chart, use it for the right-edge point:
-```typescript
-const nowPL = (currentInvestedValue ?? lastSnapshotValue) - baselineValue;
-points.push({ timestamp: windowEnd, investedPL: nowPL, source: null });
-```
-
-## Why This Fixes Each Bug
-
-- **1D empty**: The baseline (last snapshot before midnight) gets anchored at midnight with P/L = 0, and the "now" point shows current P/L. Line spans midnight-to-now.
-- **1W/1M vertical cluster**: The baseline anchor at `windowStart` (7/30 days ago) puts a point at the far left. Data points fill the middle/right. Line spans full width.
-- **Range switching**: Each range recomputes `windowStart/windowEnd`, re-finds baseline, rebuilds anchor + data + endpoint. Smooth transition via animation.
-- **Gain/loss pill matches chart**: Both use `findBaseline` with the same `windowStart`. The pill shows `currentInvestedValue - baseline`, and the chart's rightmost point shows the same value.
+- **Morning open**: Yesterday's last snapshot becomes baseline. First snapshot today shows overnight gap. Line shows full day's movement.
+- **No snapshots yesterday**: Falls back to earliest available snapshot. Chart still works.
+- **Gain/loss pill**: Uses same `findBaseline` with `range='1D'`, so pill matches chart endpoint.
+- **1W/1M/ALL**: Unchanged behavior -- baseline is nearest snapshot to window start.
 
 ## Files Summary
 
-| File | Action | Purpose |
-|------|--------|---------|
-| `src/components/PortfolioGrowthChart.tsx` | Modify | Add baseline anchor point at left edge, "now" point at right edge, accept `currentInvestedValue` prop |
-| `src/pages/PortfolioDetail.tsx` | Modify | Pass `currentInvestedValue={metrics.holdingsValue}` to chart |
+| File | Change |
+|------|--------|
+| `src/components/PortfolioGrowthChart.tsx` | Add `range` param to `findBaseline`, use "before midnight" logic for 1D |
+| `src/pages/PortfolioDetail.tsx` | Pass `range` to `findBaseline` in `computeRangeGain` |
 
