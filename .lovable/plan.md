@@ -1,56 +1,64 @@
 
 
-# Fix 1D Chart: Center Flat Lines and Add Market-Closed Context
+# Fix 1D to Show Last 24 Hours
 
-## Problem Analysis
+## The Problem
 
-The 1D chart IS rendering data -- the green line at the bottom is a flat line at $0.00 P/L. Two issues make it look broken:
+`getWindowStart('1D')` currently returns **local midnight**, and `findBaseline` for 1D searches for snapshots **before midnight**. If there are no snapshots from yesterday (this feature is new), the baseline is `null` and the chart shows "no data."
 
-1. **Y-axis domain not applied**: The `yDomain` is computed with proper padding ([-5, 5] for flat data) but never passed to a `<YAxis>` component. Recharts auto-scales the Y axis, pushing the flat line to the bottom edge instead of centering it.
+## The Fix
 
-2. **No user context**: When the market is closed and the line is flat, users think the chart is empty. A subtle indicator like "Market closed" or "Markets open at 9:30 AM ET" would clarify.
-
-3. **Pill vs. Today card discrepancy**: The 1D pill uses snapshot-based comparison while the "Today" card uses Finnhub's `previousClose`. This is actually correct behavior -- they measure different things -- but when the market opens and new snapshots arrive, both will converge. No code change needed for this.
-
-## Changes
+Change 1D from "since midnight" to "last 24 hours." This eliminates timezone edge cases and always finds a baseline because there are snapshots going back to Jan 27.
 
 ### File: `src/components/PortfolioGrowthChart.tsx`
 
-**1. Add a hidden YAxis with the computed domain**
+**1. Change `getWindowStart('1D')` to use 24 hours ago instead of midnight:**
 
-Add a `<YAxis>` component that's hidden but enforces the computed `yDomain`. This centers the flat line vertically when all values are near zero.
-
-```tsx
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ... } from 'recharts';
-
-// Inside the AreaChart:
-<YAxis
-  domain={yDomain}
-  hide
-/>
+```typescript
+case '1D': return now - 24 * 60 * 60 * 1000;
 ```
 
-**2. Show contextual message when line is flat (market closed)**
+**2. Remove the special 1D case in `findBaseline`:**
 
-When all chart points have the same P/L value (flat line), show a subtle "Markets are closed" message overlaid on or below the chart, so users understand why there's no movement. This only shows when the data range is truly flat -- not when the chart is empty.
+Since 1D is now just "24h ago" (same pattern as 1W/1M), it can use the standard logic: find the nearest snapshot at/after windowStart, or fall back to the nearest before it. No special "before midnight" handling needed.
 
-```tsx
-const isFlat = filteredData.length >= 2 &&
-  filteredData.every(d => d.investedPL === filteredData[0].investedPL);
+```typescript
+export function findBaseline(
+  snapshots: SnapshotRow[],
+  windowStart: number,
+  range?: TimeRange
+): SnapshotRow | null {
+  const valid = snapshots.filter(s => s.investedValue != null);
+  if (valid.length === 0) return null;
 
-// Render inside the chart container:
-{isFlat && (
-  <p className="text-center text-xs text-muted-foreground mt-1">
-    Markets are closed -- your chart will update when trading resumes.
-  </p>
-)}
+  // Universal logic for all ranges: prefer first at/after windowStart, fallback to nearest before
+  const atOrAfter = valid
+    .filter(s => s.timestamp >= windowStart)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  if (atOrAfter.length > 0) return atOrAfter[0];
+
+  const before = valid
+    .filter(s => s.timestamp < windowStart)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  return before[0] ?? null;
+}
 ```
+
+### File: `src/pages/PortfolioDetail.tsx`
+
+The `computeRangeGain` function already passes `range` to `findBaseline`, which will now use the unified logic. No changes needed here -- it will automatically work with the 24h window.
+
+## Why This Works
+
+- There are snapshots going back to Jan 27, so "24 hours ago" will always find a baseline
+- No timezone issues -- 24h is timezone-agnostic
+- Same pattern as 1W and 1M, just a shorter window
+- The chart will show a line from 24h ago to now, with the baseline anchor at the left and the live price at the right
+- The gain/loss pill will show the change over the last 24 hours, matching the chart
 
 ## Files Summary
 
 | File | Change |
 |------|--------|
-| `src/components/PortfolioGrowthChart.tsx` | Add hidden `YAxis` with `yDomain`, add "markets closed" message for flat lines |
-
-No changes to other files. The snapshot logic, baseline calculation, and gain/loss pill are all correct.
+| `src/components/PortfolioGrowthChart.tsx` | Change 1D window to 24h ago; simplify `findBaseline` to use unified logic for all ranges |
 
