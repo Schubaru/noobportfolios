@@ -27,7 +27,7 @@ function computeRangeGain(
   if (snapshots.length === 0) return { gain: 0, percent: 0 };
 
   const windowStart = getWindowStart(range);
-  const baseline = findBaseline(snapshots, windowStart);
+  const baseline = findBaseline(snapshots, windowStart, range);
   if (!baseline || baseline.investedValue == null) return { gain: 0, percent: 0 };
 
   const gain = currentInvestedValue - baseline.investedValue;
