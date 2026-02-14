@@ -9,11 +9,7 @@ export type TimeRange = '1D' | '1W' | '1M' | 'ALL';
 export function getWindowStart(range: TimeRange): number {
   const now = Date.now();
   switch (range) {
-    case '1D': {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      return d.getTime();
-    }
+    case '1D': return now - 24 * 60 * 60 * 1000;
     case '1W': return now - 7 * 24 * 60 * 60 * 1000;
     case '1M': return now - 30 * 24 * 60 * 60 * 1000;
     case 'ALL': return 0;
@@ -28,15 +24,7 @@ export function findBaseline(
   const valid = snapshots.filter(s => s.investedValue != null);
   if (valid.length === 0) return null;
 
-  // For 1D: always use the last snapshot BEFORE midnight (yesterday's close)
-  if (range === '1D') {
-    const before = valid
-      .filter(s => s.timestamp < windowStart)
-      .sort((a, b) => b.timestamp - a.timestamp);
-    return before[0] ?? valid.sort((a, b) => a.timestamp - b.timestamp)[0] ?? null;
-  }
-
-  // For 1W/1M/ALL: prefer first snapshot at/after windowStart, fallback to nearest before
+  // Universal logic for all ranges: prefer first at/after windowStart, fallback to nearest before
   const atOrAfter = valid
     .filter(s => s.timestamp >= windowStart)
     .sort((a, b) => a.timestamp - b.timestamp);
