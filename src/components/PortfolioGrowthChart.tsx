@@ -54,6 +54,31 @@ interface ChartPoint {
 
 const PASSIVE_REFRESH_MS = 60_000;
 
+function maxPointsForRange(range: TimeRange): number {
+  switch (range) {
+    case '1D': return 800;
+    case '1W': return 500;
+    case '1M': return 300;
+    case 'ALL': return 200;
+  }
+}
+
+function deduplicateFlat(points: ChartPoint[]): ChartPoint[] {
+  if (points.length <= 2) return points;
+  const result: ChartPoint[] = [points[0]];
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+    // Keep if value differs from prev or next (transition boundary)
+    if (curr.investedPL !== prev.investedPL || curr.investedPL !== next.investedPL) {
+      result.push(curr);
+    }
+  }
+  result.push(points[points.length - 1]);
+  return result;
+}
+
 function downsample(points: ChartPoint[], maxPoints = 200): ChartPoint[] {
   if (points.length <= maxPoints) return points;
   const result: ChartPoint[] = [];
@@ -249,8 +274,9 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
       source: null,
     });
 
-    return downsample(points);
-  }, [validSnapshots, windowStart, windowEnd, currentInvestedValue]);
+    const deduped = deduplicateFlat(points);
+    return downsample(deduped, maxPointsForRange(selectedRange));
+  }, [validSnapshots, windowStart, windowEnd, currentInvestedValue, selectedRange]);
 
   const yDomain = useMemo((): [number, number] => {
     if (filteredData.length === 0) return [-10, 10];

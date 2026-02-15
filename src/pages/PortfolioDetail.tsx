@@ -14,6 +14,7 @@ import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
 import { capturePortfolioSnapshot, hasSnapshotToday, ensureRecentSnapshot, SnapshotRow } from '@/lib/snapshots';
+import { backfillDailyCloses } from '@/lib/backfill';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
 
@@ -53,6 +54,7 @@ const PortfolioDetail = () => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [snapshotKey, setSnapshotKey] = useState(0);
   const dailySnapshotDoneRef = useRef(false);
+  const backfillDoneRef = useRef(false);
   
   // Range state lifted from chart
   const [selectedRange, setSelectedRange] = useState<TimeRange>('1D');
@@ -172,6 +174,18 @@ const PortfolioDetail = () => {
       });
     }
   }, [id, hasFetchedPrices, portfolio, metrics]);
+
+  // Backfill daily closes for offline gaps (once per session)
+  useEffect(() => {
+    if (id && hasFetchedPrices && portfolio && chartSnapshots.length > 0 && !backfillDoneRef.current) {
+      backfillDoneRef.current = true;
+      backfillDailyCloses(id, portfolio.holdings, chartSnapshots).then(inserted => {
+        if (inserted) {
+          setSnapshotKey(k => k + 1);
+        }
+      });
+    }
+  }, [id, hasFetchedPrices, portfolio, chartSnapshots]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
