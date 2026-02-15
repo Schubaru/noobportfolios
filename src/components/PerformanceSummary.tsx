@@ -9,6 +9,7 @@ interface PerformanceSummaryProps {
   metrics: PortfolioMetrics;
   cash: number;
   startingCash: number;
+  rangeGain?: number;
 }
 
 interface PerformanceHeaderProps extends PerformanceSummaryProps {
@@ -87,9 +88,11 @@ export const PerformanceHeader = ({
 export const PerformanceDetails = ({
   metrics,
   cash,
-  startingCash
+  startingCash,
+  rangeGain
 }: PerformanceSummaryProps) => {
-  const isPositiveUnrealized = metrics.unrealizedPL >= 0;
+  const gainValue = rangeGain ?? metrics.unrealizedPL;
+  const isPositiveUnrealized = gainValue >= 0;
   const isPositiveDaily = metrics.dailyPL !== null && metrics.dailyPL >= 0;
   const hasDailyData = metrics.hasDailyBaseline && metrics.dailyPL !== null;
 
@@ -121,7 +124,7 @@ export const PerformanceDetails = ({
             <p className="text-xs text-muted-foreground">Gain/Loss</p>
           </div>
           <p className={cn("text-lg font-semibold", isPositiveUnrealized ? "text-success" : "text-destructive")}>
-            {isPositiveUnrealized ? '+' : ''}{formatCurrency(metrics.unrealizedPL)}
+            {isPositiveUnrealized ? '+' : ''}{formatCurrency(gainValue)}
           </p>
         </div>
 
