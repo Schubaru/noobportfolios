@@ -1,26 +1,20 @@
 
 
-# Fix Gain/Loss Card to Match Selected Range
+# Revert Gain/Loss Card to All-Time Unrealized P/L
 
 ## Problem
-The "Gain/Loss" card in "Portfolio position" always shows all-time unrealized P/L (`metrics.unrealizedPL`), while the pill under "Investing" shows range-based gain. When 1D is selected, these should match.
+The last edit made the Gain/Loss card in "Portfolio position" change based on the selected time range (1D/1W/1M/ALL). The user wants this card to always show the **all-time unrealized P/L** -- the total gain or loss on money currently invested, regardless of which range is selected.
+
+The range-based gain should only appear in the pill under the "Investing" header, not in the Portfolio position section.
 
 ## Changes
 
 ### 1. `src/components/PerformanceSummary.tsx`
-- Add optional `rangeGain?: number` to `PerformanceSummaryProps`
-- In `PerformanceDetails`, use `rangeGain ?? metrics.unrealizedPL` for the Gain/Loss card value
+- Remove `rangeGain` from `PerformanceSummaryProps`
+- Revert `PerformanceDetails` to use `metrics.unrealizedPL` directly for the Gain/Loss card
+- Remove the `gainValue` variable, restore `isPositiveUnrealized` to use `metrics.unrealizedPL >= 0`
 
 ### 2. `src/pages/PortfolioDetail.tsx`
-- Pass `rangeGain` to the `PerformanceDetails` component on line 357-361:
-```tsx
-<PerformanceDetails
-  metrics={metrics}
-  cash={portfolio.cash}
-  startingCash={portfolio.startingCash}
-  rangeGain={rangeGain}
-/>
-```
+- Remove the `rangeGain={rangeGain}` prop from the `PerformanceDetails` component call
 
-This is a 2-line change across 2 files. The Gain/Loss card will always reflect whichever time range is currently selected, staying in sync with the pill.
-
+This is a direct revert of the last edit -- 2 small changes across 2 files.
