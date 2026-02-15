@@ -358,7 +358,6 @@ const PortfolioDetail = () => {
             metrics={metrics}
             cash={portfolio.cash}
             startingCash={portfolio.startingCash}
-            rangeGain={rangeGain}
           />
         </div>
 
