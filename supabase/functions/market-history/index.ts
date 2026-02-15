@@ -101,6 +101,12 @@ Deno.serve(async (req) => {
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      if (response.status === 403) {
+        return new Response(
+          JSON.stringify({ error: `Historical data not available for ${symbol} on free tier`, symbol }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
       return new Response(
         JSON.stringify({ error: 'Failed to fetch historical price data' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

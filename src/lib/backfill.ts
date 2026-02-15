@@ -72,8 +72,12 @@ export async function backfillDailyCloses(
         },
       });
 
-      if (!res.ok) continue;
-
+      if (!res.ok) {
+        if (res.status !== 403 && res.status !== 404) {
+          console.warn(`Backfill: ${symbol} returned ${res.status}`);
+        }
+        continue;
+      }
       const data = await res.json();
       if (!data.candles || !Array.isArray(data.candles)) continue;
 
