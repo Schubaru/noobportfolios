@@ -67,7 +67,7 @@ export const capturePortfolioSnapshot = async (
       portfolio_id: portfolioId,
       value: metrics.totalValue,
       invested_value: metrics.holdingsValue,
-      cost_basis: metrics.costBasis,
+      cost_basis: metrics.costBasis ?? 0,
       unrealized_pl: metrics.unrealizedPL,
       realized_pl: metrics.realizedPL,
       source,

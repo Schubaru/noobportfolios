@@ -224,7 +224,7 @@ const PortfolioGrowthChart = ({ portfolioId, portfolioCreatedAt, snapshotKey, cu
   }, []);
 
   const validSnapshots = useMemo(() =>
-    allSnapshots.filter(s => s.investedValue !== null && s.costBasis !== null),
+    allSnapshots.filter(s => s.investedValue !== null),
     [allSnapshots]
   );
 
