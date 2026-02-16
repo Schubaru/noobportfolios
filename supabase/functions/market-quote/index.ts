@@ -1,167 +1,77 @@
 /// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
 
+import { getAlpacaConfig, missingKeysResponse, alpacaFetch } from '../_shared/alpaca.ts';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// In-memory cache (resets on cold start, but effective for warm instances)
 const cache = new Map<string, { data: unknown; expiry: number }>();
-
-const CACHE_TTL_SECONDS = 60; // Increased to reduce API calls
-const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY_MS = 500;
-
-// Helper function to delay execution
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Retry with exponential backoff
-async function fetchWithRetry(url: string, retries = MAX_RETRIES): Promise<Response> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const response = await fetch(url);
-      
-      // If rate limited, wait and retry
-      if (response.status === 429 && attempt < retries - 1) {
-        const waitTime = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
-        console.log(`Rate limited, retrying in ${waitTime}ms (attempt ${attempt + 1}/${retries})`);
-        await delay(waitTime);
-        continue;
-      }
-      
-      // If server error (500-599) and not last attempt, retry
-      if (response.status >= 500 && response.status < 600 && attempt < retries - 1) {
-        const waitTime = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
-        console.log(`Server error ${response.status}, retrying in ${waitTime}ms (attempt ${attempt + 1}/${retries})`);
-        await delay(waitTime);
-        continue;
-      }
-      
-      return response;
-    } catch (error) {
-      if (attempt === retries - 1) {
-        throw error;
-      }
-      const waitTime = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
-      console.log(`Network error, retrying in ${waitTime}ms (attempt ${attempt + 1}/${retries}):`, error);
-      await delay(waitTime);
-    }
-  }
-  
-  throw new Error('Max retries exceeded');
-}
+const CACHE_TTL = 60_000; // 60s
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   try {
-    const FINNHUB_API_KEY = Deno.env.get('FINNHUB_API_KEY');
-    
-    if (!FINNHUB_API_KEY) {
-      console.error('Missing FINNHUB_API_KEY in secrets');
-      return new Response(
-        JSON.stringify({ error: 'Missing FINNHUB_API_KEY in Secrets.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const cfg = getAlpacaConfig();
+    if (!cfg) return missingKeysResponse(corsHeaders);
 
     const url = new URL(req.url);
     const symbol = url.searchParams.get('symbol')?.toUpperCase();
-
     if (!symbol) {
-      return new Response(
-        JSON.stringify({ error: 'Missing required parameter: symbol' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'Missing required parameter: symbol' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // Check cache
     const cacheKey = `quote:${symbol}`;
     const cached = cache.get(cacheKey);
     if (cached && cached.expiry > Date.now()) {
-      console.log(`Cache hit for ${symbol}`);
-      return new Response(
-        JSON.stringify(cached.data),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return new Response(JSON.stringify(cached.data),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    console.log(`Fetching quote for ${symbol} from Finnhub`);
-    
-    const response = await fetchWithRetry(
-      `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_API_KEY}`
-    );
+    const res = await alpacaFetch(`/v2/stocks/${encodeURIComponent(symbol)}/snapshot`, cfg);
 
-    if (!response.ok) {
-      console.error(`Finnhub error after retries: ${response.status}`);
-      
-      // If we have cached data (even if expired), return it as fallback
+    if (!res.ok) {
+      // Return stale cache if available
       if (cached) {
-        console.log(`Returning stale cache for ${symbol} due to API error`);
-        return new Response(
-          JSON.stringify(cached.data),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache-Status': 'stale' } }
-        );
+        return new Response(JSON.stringify(cached.data),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Cache-Status': 'stale' } });
       }
-      
-      // No cache available, return error
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: 'Rate limited. Please retry after a short delay.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      } else {
-        return new Response(
-          JSON.stringify({ error: 'Failed to fetch quote data' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+      return new Response(JSON.stringify({ error: `Alpaca error: ${res.status}` }),
+        { status: res.status >= 400 && res.status < 500 ? res.status : 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const data = await response.json();
+    const snap = await res.json();
 
-    // Finnhub returns { c, d, dp, h, l, o, pc, t } when valid
-    // c = current price, d = change, dp = percent change, h = high, l = low, o = open, pc = prev close, t = timestamp
-    if (!data || data.c === 0) {
-      console.error(`Invalid symbol or no data for ${symbol}`);
-      return new Response(
-        JSON.stringify({ error: `Invalid symbol or no data available for: ${symbol}` }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Extract price: latestTrade.p -> minuteBar.c -> dailyBar.c
+    const price = snap.latestTrade?.p ?? snap.minuteBar?.c ?? snap.dailyBar?.c ?? 0;
+    const prevClose = snap.prevDailyBar?.c ?? 0;
+    const change = prevClose ? price - prevClose : 0;
+    const changePct = prevClose ? (change / prevClose) * 100 : 0;
 
-    const normalizedData = {
+    const normalized = {
       symbol,
-      price: data.c,
-      change: data.d,
-      changePct: data.dp,
-      dayHigh: data.h,
-      dayLow: data.l,
-      dayOpen: data.o,
-      prevClose: data.pc,
-      timestamp: data.t ? data.t * 1000 : Date.now(),
+      price,
+      change: Math.round(change * 100) / 100,
+      changePct: Math.round(changePct * 100) / 100,
+      dayHigh: snap.dailyBar?.h ?? price,
+      dayLow: snap.dailyBar?.l ?? price,
+      dayOpen: snap.dailyBar?.o ?? price,
+      prevClose,
+      timestamp: snap.latestTrade?.t ? new Date(snap.latestTrade.t).getTime() : Date.now(),
     };
 
-    // Cache the result
-    cache.set(cacheKey, {
-      data: normalizedData,
-      expiry: Date.now() + CACHE_TTL_SECONDS * 1000,
-    });
+    cache.set(cacheKey, { data: normalized, expiry: Date.now() + CACHE_TTL });
 
-    console.log(`Quote fetched successfully for ${symbol}`);
-
-    return new Response(
-      JSON.stringify(normalizedData),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify(normalized),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error) {
-    console.error('Error in market-quote function:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error('market-quote error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
