@@ -9,32 +9,15 @@ import AllocationChart from '@/components/AllocationChart';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
-import PortfolioGrowthChart, { TimeRange, getWindowStart, findBaseline } from '@/components/PortfolioGrowthChart';
+import PortfolioGrowthChart, { TimeRange, ChartHoverState } from '@/components/PortfolioGrowthChart';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
-import { capturePortfolioSnapshot, hasSnapshotToday, ensureRecentSnapshot, SnapshotRow } from '@/lib/snapshots';
-import { backfillDailyCloses } from '@/lib/backfill';
+import { callSnapshotPortfolio } from '@/lib/snapshots';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
 
-const REFRESH_INTERVAL_MS = 8000;
-
-function computeRangeGain(
-  snapshots: SnapshotRow[],
-  range: TimeRange,
-  currentInvestedValue: number
-): { gain: number; percent: number } {
-  if (snapshots.length === 0) return { gain: 0, percent: 0 };
-
-  const windowStart = getWindowStart(range);
-  const baseline = findBaseline(snapshots, windowStart, range);
-  if (!baseline || baseline.investedValue == null) return { gain: 0, percent: 0 };
-
-  const gain = currentInvestedValue - baseline.investedValue;
-  const pct = baseline.investedValue > 0 ? gain / baseline.investedValue : 0;
-  return { gain, percent: pct };
-}
+const AUTO_SNAPSHOT_MS = 60_000;
 
 const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -51,16 +34,17 @@ const PortfolioDetail = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDividendBreakdown, setShowDividendBreakdown] = useState(false);
   const [hasFetchedPrices, setHasFetchedPrices] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
   const [snapshotKey, setSnapshotKey] = useState(0);
-  const dailySnapshotDoneRef = useRef(false);
-  const backfillDoneRef = useRef(false);
   
-  // Range state lifted from chart
+  // Range state
   const [selectedRange, setSelectedRange] = useState<TimeRange>('1D');
-  const [chartSnapshots, setChartSnapshots] = useState<SnapshotRow[]>([]);
+  
+  // Hover scrubbing state
+  const [hoverState, setHoverState] = useState<ChartHoverState | null>(null);
 
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSnapshotRef = useRef<NodeJS.Timeout | null>(null);
   const isPageVisibleRef = useRef(true);
 
   const availableRanges = useMemo((): TimeRange[] => {
@@ -73,24 +57,33 @@ const PortfolioDetail = () => {
     return ranges;
   }, [portfolio?.createdAt]);
 
-  const { rangeGain, rangeGainPercent } = useMemo(() => {
-    if (!metrics) return { rangeGain: 0, rangeGainPercent: 0 };
-    const result = computeRangeGain(chartSnapshots, selectedRange, metrics.holdingsValue);
-    return { rangeGain: result.gain, rangeGainPercent: result.percent };
-  }, [chartSnapshots, selectedRange, metrics]);
+  // Displayed values (hover overrides live)
+  const displayHoldingsValue = hoverState?.isHovering ? hoverState.holdingsValue : metrics?.holdingsValue ?? 0;
+  const displayGain = hoverState?.isHovering ? hoverState.gain : metrics?.unrealizedPL ?? 0;
+  const displayGainPercent = hoverState?.isHovering ? hoverState.gainPercent : (metrics?.costBasis && metrics.costBasis > 0 ? (metrics.unrealizedPL / metrics.costBasis) : 0);
 
-  const handleDataReady = useCallback((snapshots: SnapshotRow[]) => {
-    setChartSnapshots(snapshots);
+  const handleHoverChange = useCallback((state: ChartHoverState | null) => {
+    setHoverState(state);
   }, []);
+
+  const triggerSnapshot = useCallback(async (reason: 'trade' | 'view_load' | 'auto') => {
+    if (!id) return;
+    const result = await callSnapshotPortfolio(id, reason);
+    if (result) {
+      setLastUpdated(result.last_snapshot_at);
+      setStale(result.stale);
+      if (result.snapshot_written) {
+        setSnapshotKey(k => k + 1);
+      }
+    }
+  }, [id]);
 
   const loadPortfolioData = useCallback(async (forceRefresh = false, freshPortfolio?: Portfolio) => {
     if (!id) return;
     
     const data = freshPortfolio || getPortfolio(id);
     if (!data) {
-      if (!portfoliosLoading) {
-        navigate('/');
-      }
+      if (!portfoliosLoading) navigate('/');
       return;
     }
 
@@ -100,36 +93,20 @@ const PortfolioDetail = () => {
     }
 
     let portfolioWithPrices = { ...data, holdings: [...data.holdings] };
-    let hasApiErrors = false;
 
     if (data.holdings.length > 0) {
       const symbols = data.holdings.map(h => h.symbol);
-      
       try {
         const quotes = await fetchMultipleQuotes(symbols);
-        
         portfolioWithPrices.holdings = data.holdings.map(h => {
           const quote = quotes.get(h.symbol.toUpperCase());
-          if (quote) {
-            return {
-              ...h,
-              currentPrice: quote.price,
-              previousClose: quote.prevClose,
-            };
-          }
-          return {
-            ...h,
-            currentPrice: h.currentPrice,
-            previousClose: undefined,
-          };
+          return quote
+            ? { ...h, currentPrice: quote.price, previousClose: quote.prevClose }
+            : { ...h, currentPrice: h.currentPrice, previousClose: undefined };
         });
-      } catch (error) {
-        console.error('Error fetching quotes, using last known prices:', error);
-        hasApiErrors = true;
+      } catch {
         portfolioWithPrices.holdings = data.holdings.map(h => ({
-          ...h,
-          currentPrice: h.currentPrice ?? h.avgCost,
-          previousClose: undefined,
+          ...h, currentPrice: h.currentPrice ?? h.avgCost, previousClose: undefined,
         }));
       }
     }
@@ -137,17 +114,8 @@ const PortfolioDetail = () => {
     setPortfolio(portfolioWithPrices);
     const newMetrics = calculatePortfolioMetrics(portfolioWithPrices);
     setMetrics(newMetrics);
-    setLastUpdated(new Date());
     setIsLoading(false);
     setHasFetchedPrices(true);
-
-    if (forceRefresh && id) {
-      capturePortfolioSnapshot(id, portfolioWithPrices, newMetrics, 'auto');
-    }
-    
-    if (hasApiErrors && forceRefresh) {
-      console.warn('Using last known prices due to market data API issues');
-    }
   }, [id, getPortfolio, portfoliosLoading, navigate, hasFetchedPrices]);
 
   useEffect(() => {
@@ -156,96 +124,47 @@ const PortfolioDetail = () => {
     }
   }, [portfoliosLoading, id, hasFetchedPrices, loadPortfolioData]);
 
-  // Ensure baseline snapshot on open (if last snapshot > 15 min)
+  // On first load, trigger a view_load snapshot
   useEffect(() => {
-    if (id && hasFetchedPrices && portfolio && metrics) {
-      ensureRecentSnapshot(id, portfolio, metrics);
+    if (id && hasFetchedPrices) {
+      triggerSnapshot('view_load');
     }
-  }, [id, hasFetchedPrices, portfolio, metrics]);
+  }, [id, hasFetchedPrices, triggerSnapshot]);
 
-  // Daily snapshot (once per calendar day)
+  // Auto snapshot every 60s
   useEffect(() => {
-    if (id && hasFetchedPrices && portfolio && metrics && !dailySnapshotDoneRef.current) {
-      dailySnapshotDoneRef.current = true;
-      hasSnapshotToday(id).then(exists => {
-        if (!exists && portfolio.holdings.length > 0) {
-          capturePortfolioSnapshot(id, portfolio, metrics, 'daily');
-        }
-      });
-    }
-  }, [id, hasFetchedPrices, portfolio, metrics]);
-
-  // Backfill daily closes for offline gaps (once per session)
-  useEffect(() => {
-    if (id && hasFetchedPrices && portfolio && chartSnapshots.length > 0 && !backfillDoneRef.current) {
-      backfillDoneRef.current = true;
-      backfillDailyCloses(id, portfolio.holdings, chartSnapshots).then(inserted => {
-        if (inserted) {
-          setSnapshotKey(k => k + 1);
-        }
-      });
-    }
-  }, [id, hasFetchedPrices, portfolio, chartSnapshots]);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      isPageVisibleRef.current = !document.hidden;
-      
-      if (document.hidden) {
-        if (refreshIntervalRef.current) {
-          clearInterval(refreshIntervalRef.current);
-          refreshIntervalRef.current = null;
-        }
-      } else {
-        startAutoRefresh();
+    autoSnapshotRef.current = setInterval(() => {
+      if (isPageVisibleRef.current && hasFetchedPrices) {
+        triggerSnapshot('auto');
       }
-    };
+    }, AUTO_SNAPSHOT_MS);
+    return () => { if (autoSnapshotRef.current) clearInterval(autoSnapshotRef.current); };
+  }, [triggerSnapshot, hasFetchedPrices]);
 
-    const startAutoRefresh = () => {
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-      
-      refreshIntervalRef.current = setInterval(() => {
-        if (isPageVisibleRef.current && !isRefreshing && portfolio) {
-          handleRefresh();
-        }
-      }, REFRESH_INTERVAL_MS);
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    if (portfolio && !document.hidden) {
-      startAutoRefresh();
-    }
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-    };
-  }, [portfolio, isRefreshing]);
+  // Visibility handling
+  useEffect(() => {
+    const handler = () => { isPageVisibleRef.current = !document.hidden; };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, []);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await fetchPortfolios();
     await loadPortfolioData(true);
+    await triggerSnapshot('auto');
     setIsRefreshing(false);
   };
 
   const handleDelete = async () => {
     if (!id) return;
     const success = await deletePortfolio(id);
-    if (success) {
-      navigate('/');
-    }
+    if (success) navigate('/');
   };
 
   const handleViewAsset = (symbol: string) => {
     const holding = portfolio?.holdings.find(h => h.symbol === symbol);
-    if (holding) {
-      setSelectedHolding(holding);
-    }
+    if (holding) setSelectedHolding(holding);
   };
 
   const handleTrade = (symbol?: string) => {
@@ -257,7 +176,7 @@ const PortfolioDetail = () => {
     const freshPortfolios = await fetchPortfolios();
     const freshPortfolio = freshPortfolios.find(p => p.id === id);
     await loadPortfolioData(true, freshPortfolio);
-    setSnapshotKey(k => k + 1);
+    await triggerSnapshot('trade');
   };
 
   if (isLoading || portfoliosLoading) {
@@ -269,9 +188,7 @@ const PortfolioDetail = () => {
             <div className="h-8 bg-muted rounded w-1/4" />
             <div className="h-[200px] bg-muted rounded-xl" />
             <div className="grid grid-cols-5 gap-3">
-              {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="h-24 bg-muted rounded-xl" />
-              ))}
+              {[1, 2, 3, 4, 5].map(i => (<div key={i} className="h-24 bg-muted rounded-xl" />))}
             </div>
           </div>
         </main>
@@ -279,9 +196,7 @@ const PortfolioDetail = () => {
     );
   }
 
-  if (!portfolio || !metrics) {
-    return null;
-  }
+  if (!portfolio || !metrics) return null;
 
   const recentTransactions = portfolio.transactions.slice(0, 5);
 
@@ -293,10 +208,7 @@ const PortfolioDetail = () => {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
-            <Link
-              to="/"
-              className="p-2 rounded-lg hover:bg-secondary transition-colors"
-            >
+            <Link to="/" className="p-2 rounded-lg hover:bg-secondary transition-colors">
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div>
@@ -306,7 +218,7 @@ const PortfolioDetail = () => {
                 {lastUpdated && (
                   <span className="flex items-center gap-1">
                     <span className="text-muted-foreground/60">•</span>
-                    <span>Updated {lastUpdated.toLocaleTimeString()}</span>
+                    <span>Updated {new Date(lastUpdated).toLocaleTimeString()}</span>
                   </span>
                 )}
               </div>
@@ -314,29 +226,15 @@ const PortfolioDetail = () => {
           </div>
           
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
-              title="Refresh prices"
-            >
+            <button onClick={handleRefresh} disabled={isRefreshing} className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50" title="Refresh prices">
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
-            
             {!portfolio.isExample && (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="p-2 rounded-lg hover:bg-destructive/10 text-destructive transition-colors"
-                title="Delete portfolio"
-              >
+              <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-lg hover:bg-destructive/10 text-destructive transition-colors" title="Delete portfolio">
                 <Trash2 className="w-5 h-5" />
               </button>
             )}
-            
-            <button
-              onClick={() => handleTrade()}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-all"
-            >
+            <button onClick={() => handleTrade()} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-all">
               <ArrowRightLeft className="w-4 h-4" />
               Trade
             </button>
@@ -352,39 +250,31 @@ const PortfolioDetail = () => {
             selectedRange={selectedRange}
             onRangeChange={setSelectedRange}
             availableRanges={availableRanges}
-            rangeGain={rangeGain}
-            rangeGainPercent={rangeGainPercent}
+            rangeGain={displayGain}
+            rangeGainPercent={displayGainPercent}
+            displayHoldingsValue={hoverState?.isHovering ? displayHoldingsValue : undefined}
           />
           <PortfolioGrowthChart
             portfolioId={portfolio.id}
-            portfolioCreatedAt={portfolio.createdAt}
             snapshotKey={snapshotKey}
-            currentUnrealizedPL={metrics.unrealizedPL}
-            currentInvestedValue={metrics.holdingsValue}
             selectedRange={selectedRange}
-            onDataReady={handleDataReady}
+            stale={stale}
+            lastUpdated={lastUpdated}
+            onHoverChange={handleHoverChange}
           />
         </div>
 
         {/* Portfolio position */}
         <div className="mb-6">
-          <PerformanceDetails
-            metrics={metrics}
-            cash={portfolio.cash}
-            startingCash={portfolio.startingCash}
-          />
+          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
         </div>
 
         {/* Holdings & Allocation */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <div className="lg:col-span-2">
             <h2 className="text-lg font-semibold mb-4">Holdings</h2>
-            <HoldingsTable 
-              holdings={portfolio.holdings} 
-              onTrade={handleViewAsset}
-            />
+            <HoldingsTable holdings={portfolio.holdings} onTrade={handleViewAsset} />
           </div>
-          
           <div>
             <AllocationChart holdings={portfolio.holdings} />
           </div>
@@ -399,32 +289,21 @@ const PortfolioDetail = () => {
             </div>
             <div className="space-y-2">
               {recentTransactions.map((tx: Transaction) => (
-                <div 
-                  key={tx.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-secondary/50"
-                >
+                <div key={tx.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/50">
                   <div className="flex items-center gap-3">
-                    <span className={`px-2 py-1 rounded-md text-xs font-medium ${
-                      tx.type === 'buy' 
-                        ? 'bg-success/10 text-success' 
-                        : 'bg-destructive/10 text-destructive'
-                    }`}>
+                    <span className={`px-2 py-1 rounded-md text-xs font-medium ${tx.type === 'buy' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
                       {tx.type.toUpperCase()}
                     </span>
                     <div>
                       <p className="font-medium">{tx.symbol}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatShares(tx.shares)} shares @ {formatCurrency(tx.price)}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{formatShares(tx.shares)} shares @ {formatCurrency(tx.price)}</p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className={`font-medium ${tx.type === 'buy' ? 'text-destructive' : 'text-success'}`}>
                       {tx.type === 'buy' ? '-' : '+'}{formatCurrency(tx.total)}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(tx.timestamp).toLocaleDateString()}
-                    </p>
+                    <p className="text-xs text-muted-foreground">{new Date(tx.timestamp).toLocaleDateString()}</p>
                   </div>
                 </div>
               ))}
@@ -433,57 +312,19 @@ const PortfolioDetail = () => {
         )}
       </main>
 
-      <AssetDetailModal
-        isOpen={!!selectedHolding}
-        onClose={() => setSelectedHolding(null)}
-        holding={selectedHolding}
-        onTrade={(symbol) => {
-          setSelectedHolding(null);
-          handleTrade(symbol);
-        }}
-      />
-
-      <DividendBreakdown
-        isOpen={showDividendBreakdown}
-        onClose={() => setShowDividendBreakdown(false)}
-        portfolio={portfolio}
-      />
-
-      <TradeModal
-        isOpen={isTradeModalOpen}
-        onClose={() => {
-          setIsTradeModalOpen(false);
-          setTradeSymbol(undefined);
-        }}
-        portfolio={portfolio}
-        onTradeComplete={handleTradeComplete}
-        initialSymbol={tradeSymbol}
-      />
+      <AssetDetailModal isOpen={!!selectedHolding} onClose={() => setSelectedHolding(null)} holding={selectedHolding} onTrade={(symbol) => { setSelectedHolding(null); handleTrade(symbol); }} />
+      <DividendBreakdown isOpen={showDividendBreakdown} onClose={() => setShowDividendBreakdown(false)} portfolio={portfolio} />
+      <TradeModal isOpen={isTradeModalOpen} onClose={() => { setIsTradeModalOpen(false); setTradeSymbol(undefined); }} portfolio={portfolio} onTradeComplete={handleTradeComplete} initialSymbol={tradeSymbol} />
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={() => setShowDeleteConfirm(false)}
-          />
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowDeleteConfirm(false)} />
           <div className="relative w-full max-w-sm glass-card p-6 slide-up">
             <h3 className="text-lg font-bold mb-2">Delete Portfolio?</h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              This will permanently delete "{portfolio.name}" and all its data. This action cannot be undone.
-            </p>
+            <p className="text-sm text-muted-foreground mb-6">This will permanently delete "{portfolio.name}" and all its data. This action cannot be undone.</p>
             <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2 rounded-xl border border-border font-medium hover:bg-secondary transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                className="flex-1 py-2 rounded-xl bg-destructive text-destructive-foreground font-medium hover:bg-destructive/90 transition-colors"
-              >
-                Delete
-              </button>
+              <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-2 rounded-xl border border-border font-medium hover:bg-secondary transition-colors">Cancel</button>
+              <button onClick={handleDelete} className="flex-1 py-2 rounded-xl bg-destructive text-destructive-foreground font-medium hover:bg-destructive/90 transition-colors">Delete</button>
             </div>
           </div>
         </div>

@@ -29,3 +29,9 @@ verify_jwt = false
 
 [functions.regenerate-portfolio]
 verify_jwt = false
+
+[functions.snapshot-portfolio]
+verify_jwt = false
+
+[functions.portfolio-performance]
+verify_jwt = false
