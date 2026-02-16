@@ -267,7 +267,7 @@ Deno.serve(async (req) => {
     const currentQuotes = await batchGetQuotes(allSymbols);
 
     // ── Compute portfolio value at each bucket ──
-    const points: { t: string; v: number; hv: number }[] = [];
+    const points: { t: string; v: number; hv: number; cb: number }[] = [];
 
     for (const bucketTime of buckets) {
       const bucketDate = new Date(bucketTime).toISOString().split('T')[0];
@@ -275,10 +275,15 @@ Deno.serve(async (req) => {
 
       // Get holdings active at this time
       let holdingsValue = 0;
+      let costBasis = 0;
       for (const h of (holdingsRows || [])) {
         const from = new Date(h.effective_from).getTime();
         const to = h.effective_to ? new Date(h.effective_to).getTime() : Infinity;
         if (from <= bucketTime && bucketTime < to) {
+          const shares = Number(h.shares);
+          const avgCost = Number(h.avg_cost);
+          costBasis += shares * avgCost;
+
           // Get price
           let price: number | null = null;
           if (isToday) {
@@ -300,8 +305,8 @@ Deno.serve(async (req) => {
             }
           }
           // Fallback to avg_cost if no price available
-          if (price === null) price = Number(h.avg_cost);
-          holdingsValue += Number(h.shares) * price;
+          if (price === null) price = avgCost;
+          holdingsValue += shares * price;
         }
       }
 
@@ -319,20 +324,25 @@ Deno.serve(async (req) => {
       points.push({
         t: new Date(bucketTime).toISOString(),
         v: Math.round(totalValue * 100) / 100,
-        hv: Math.round(holdingsValue * 100) / 100, // always numeric, never null
+        hv: Math.round(holdingsValue * 100) / 100,
+        cb: Math.round(costBasis * 100) / 100,
       });
     }
 
     // ── Live last point for 1D ──
     if (range === '1D' && points.length > 0) {
-      // Recompute current holdings value with freshest quotes
+      // Recompute current holdings value and cost basis with freshest quotes
       let liveHV = 0;
+      let liveCB = 0;
       for (const h of (holdingsRows || [])) {
         const from = new Date(h.effective_from).getTime();
         const to = h.effective_to ? new Date(h.effective_to).getTime() : Infinity;
         if (from <= now && now < to) {
-          const price = currentQuotes.get(h.symbol) ?? Number(h.avg_cost);
-          liveHV += Number(h.shares) * price;
+          const shares = Number(h.shares);
+          const avgCost = Number(h.avg_cost);
+          liveCB += shares * avgCost;
+          const price = currentQuotes.get(h.symbol) ?? avgCost;
+          liveHV += shares * price;
         }
       }
       // Get current cash
@@ -346,8 +356,9 @@ Deno.serve(async (req) => {
       }
       const liveV = Math.round((liveHV + liveCash) * 100) / 100;
       liveHV = Math.round(liveHV * 100) / 100;
+      liveCB = Math.round(liveCB * 100) / 100;
 
-      const livePoint = { t: new Date(now).toISOString(), v: liveV, hv: liveHV };
+      const livePoint = { t: new Date(now).toISOString(), v: liveV, hv: liveHV, cb: liveCB };
       const lastPoint = points[points.length - 1];
       const lastTs = new Date(lastPoint.t).getTime();
       // Replace if within 60s, else append
