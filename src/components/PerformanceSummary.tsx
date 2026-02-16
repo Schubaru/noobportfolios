@@ -69,7 +69,10 @@ export const PerformanceHeader = ({
                 key={range}
                 variant={selectedRange === range ? 'default' : 'ghost'}
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className={cn(
+                  "h-7 px-2 text-xs",
+                  selectedRange !== range && "hover:bg-primary/10 hover:text-primary"
+                )}
                 onClick={() => onRangeChange(range)}
               >
                 {range}
