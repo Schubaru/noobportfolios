@@ -200,7 +200,7 @@ const PortfolioDetail = () => {
         </div>
 
         {/* Hero: Investing value + Chart */}
-        <div className="glass-card p-6 mb-6">
+        <div className="p-6 mb-6">
           <PerformanceHeader
             metrics={metrics}
             cash={portfolio.cash}
