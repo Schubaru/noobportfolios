@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Trash2, ArrowRightLeft, Clock } from 'lucide-react';
+import { ArrowLeft, Trash2, ArrowRightLeft, Clock } from 'lucide-react';
 import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
 import { PerformanceHeader, PerformanceDetails } from '@/components/PerformanceSummary';
@@ -226,9 +226,6 @@ const PortfolioDetail = () => {
           </div>
           
           <div className="flex items-center gap-2">
-            <button onClick={handleRefresh} disabled={isRefreshing} className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50" title="Refresh prices">
-              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
             {!portfolio.isExample && (
               <button onClick={() => setShowDeleteConfirm(true)} className="p-2 rounded-lg hover:bg-destructive/10 text-destructive transition-colors" title="Delete portfolio">
                 <Trash2 className="w-5 h-5" />
