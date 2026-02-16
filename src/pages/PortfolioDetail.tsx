@@ -261,20 +261,20 @@ const PortfolioDetail = () => {
           />
         </div>
 
-        {/* Portfolio position */}
-        <div className="mb-6">
-          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
-        </div>
-
-        {/* Holdings & Allocation */}
+        {/* Portfolio position & Allocation */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <div className="lg:col-span-2">
-            <h2 className="text-lg font-semibold mb-4">Holdings</h2>
-            <HoldingsTable holdings={portfolio.holdings} onTrade={handleViewAsset} />
+            <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
           </div>
           <div>
             <AllocationChart holdings={portfolio.holdings} />
           </div>
+        </div>
+
+        {/* Holdings */}
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold mb-4">Holdings</h2>
+          <HoldingsTable holdings={portfolio.holdings} onTrade={handleViewAsset} />
         </div>
 
         {/* Recent Transactions */}
