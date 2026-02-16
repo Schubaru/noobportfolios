@@ -9,7 +9,7 @@ import AllocationChart from '@/components/AllocationChart';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
-import PortfolioGrowthChart, { TimeRange, ChartHoverState } from '@/components/PortfolioGrowthChart';
+import PortfolioGrowthChart, { TimeRange, ChartHoverState, RangeStats } from '@/components/PortfolioGrowthChart';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
@@ -38,6 +38,8 @@ const PortfolioDetail = () => {
   
   // Hover scrubbing state
   const [hoverState, setHoverState] = useState<ChartHoverState | null>(null);
+  // Range-based gain/loss from chart data
+  const [rangeStats, setRangeStats] = useState<RangeStats>({ gain: 0, pct: 0 });
 
   const isPageVisibleRef = useRef(true);
 
@@ -51,10 +53,10 @@ const PortfolioDetail = () => {
     return ranges;
   }, [portfolio?.createdAt]);
 
-  // Displayed values (hover overrides live)
-  const displayHoldingsValue = hoverState?.isHovering ? hoverState.holdingsValue : metrics?.holdingsValue ?? 0;
-  const displayGain = hoverState?.isHovering ? hoverState.gain : metrics?.unrealizedPL ?? 0;
-  const displayGainPercent = hoverState?.isHovering ? hoverState.gainPercent : (metrics?.costBasis && metrics.costBasis > 0 ? (metrics.unrealizedPL / metrics.costBasis) : 0);
+  // Displayed values (hover overrides live, non-hover uses range stats)
+  const displayHoldingsValue = hoverState?.isHovering ? hoverState.portfolioValue : metrics?.holdingsValue ?? 0;
+  const displayGain = hoverState?.isHovering ? hoverState.gain : rangeStats.gain;
+  const displayGainPercent = hoverState?.isHovering ? hoverState.gainPercent : rangeStats.pct;
 
   const handleHoverChange = useCallback((state: ChartHoverState | null) => {
     setHoverState(state);
@@ -215,6 +217,7 @@ const PortfolioDetail = () => {
             refreshKey={refreshKey}
             selectedRange={selectedRange}
             onHoverChange={handleHoverChange}
+            onRangeStats={setRangeStats}
           />
         </div>
 
