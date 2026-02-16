@@ -13,10 +13,10 @@ const AllocationChart = ({ holdings }: AllocationChartProps) => {
 
   if (allocation.length === 0) {
     return (
-      <div className="glass-card p-6 text-center">
+      <div className="glass-card p-6 h-full flex items-center justify-center">
         <p className="text-muted-foreground">Add holdings to see asset allocation</p>
-      </div>);
-
+      </div>
+    );
   }
 
   const CustomTooltip = ({ active, payload }: any) => {
@@ -27,60 +27,60 @@ const AllocationChart = ({ holdings }: AllocationChartProps) => {
           <p className="font-semibold">{getAssetClassLabel(data.assetClass)}</p>
           <p className="text-muted-foreground">{formatCurrency(data.value)}</p>
           <p className="text-primary font-medium">{data.percentage.toFixed(1)}%</p>
-        </div>);
-
+        </div>
+      );
     }
     return null;
   };
 
   return (
-    <div className="glass-card p-6">
+    <div className="glass-card p-6 h-full flex flex-col">
       <h3 className="text-sm font-semibold mb-4">Holdings types</h3>
-      
-      <div className="flex flex-col md:flex-row items-center gap-6">
-        <div className="w-[200px] h-[200px] flex-shrink-0">
+
+      <div className="flex-1 flex flex-col items-center justify-center gap-4">
+        <div className="w-[140px] h-[140px] flex-shrink-0">
           <ResponsiveContainer width="100%" height="100%">
-            <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+            <PieChart margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
               <Pie
                 data={allocation}
                 cx="50%"
                 cy="50%"
-                innerRadius={50}
-                outerRadius={75}
+                innerRadius={40}
+                outerRadius={60}
                 paddingAngle={2}
-                dataKey="percentage">
-
-                {allocation.map((entry, index) =>
-                <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
-                )}
+                dataKey="percentage"
+              >
+                {allocation.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
+                ))}
               </Pie>
               <Tooltip content={<CustomTooltip />} />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="flex-1 space-y-3 w-full">
-          {allocation.map((item) =>
-          <div key={item.assetClass} className="flex items-center justify-between">
+        <div className="space-y-2 w-full">
+          {allocation.map((item) => (
+            <div key={item.assetClass} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{ backgroundColor: item.color }} />
-
-                <span className="text-sm">{getAssetClassLabel(item.assetClass)}</span>
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="text-xs">{getAssetClassLabel(item.assetClass)}</span>
               </div>
               <div className="text-right">
-                <span className="text-sm font-medium">{item.percentage.toFixed(1)}%</span>
-                <span className="text-xs text-muted-foreground ml-2">
+                <span className="text-xs font-medium">{item.percentage.toFixed(1)}%</span>
+                <span className="text-[11px] text-muted-foreground ml-1.5">
                   {formatCurrency(item.value)}
                 </span>
               </div>
             </div>
-          )}
+          ))}
         </div>
       </div>
-    </div>);
-
+    </div>
+  );
 };
 
 export default AllocationChart;
