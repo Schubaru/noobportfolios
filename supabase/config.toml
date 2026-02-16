@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.backfill-daily-prices]
 verify_jwt = false
+
+[functions.quote-cache-refresh]
+verify_jwt = false
