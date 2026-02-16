@@ -11,12 +11,12 @@ const FINNHUB_KEY = Deno.env.get('FINNHUB_API_KEY') || '';
 
 // ── In-memory caches ──
 const quoteCache = new Map<string, { price: number; ts: number }>();
-const QUOTE_TTL = 60_000; // 60s
+const QUOTE_TTL = 30_000; // 30s
 
 const responseCache = new Map<string, { body: string; ts: number }>();
 function responseTTL(range: Range): number {
   switch (range) {
-    case '1D': return 60_000;
+    case '1D': return 15_000;
     case '1W': return 5 * 60_000;
     case '1M': return 15 * 60_000;
     case 'ALL': return 60 * 60_000;
@@ -321,6 +321,41 @@ Deno.serve(async (req) => {
         v: Math.round(totalValue * 100) / 100,
         hv: Math.round(holdingsValue * 100) / 100, // always numeric, never null
       });
+    }
+
+    // ── Live last point for 1D ──
+    if (range === '1D' && points.length > 0) {
+      // Recompute current holdings value with freshest quotes
+      let liveHV = 0;
+      for (const h of (holdingsRows || [])) {
+        const from = new Date(h.effective_from).getTime();
+        const to = h.effective_to ? new Date(h.effective_to).getTime() : Infinity;
+        if (from <= now && now < to) {
+          const price = currentQuotes.get(h.symbol) ?? Number(h.avg_cost);
+          liveHV += Number(h.shares) * price;
+        }
+      }
+      // Get current cash
+      let liveCash = Number(portfolio.starting_cash);
+      for (const c of (cashRows || [])) {
+        const from = new Date(c.effective_from).getTime();
+        const to = c.effective_to ? new Date(c.effective_to).getTime() : Infinity;
+        if (from <= now && now < to) {
+          liveCash = Number(c.amount);
+        }
+      }
+      const liveV = Math.round((liveHV + liveCash) * 100) / 100;
+      liveHV = Math.round(liveHV * 100) / 100;
+
+      const livePoint = { t: new Date(now).toISOString(), v: liveV, hv: liveHV };
+      const lastPoint = points[points.length - 1];
+      const lastTs = new Date(lastPoint.t).getTime();
+      // Replace if within 60s, else append
+      if (now - lastTs < 60_000) {
+        points[points.length - 1] = livePoint;
+      } else {
+        points.push(livePoint);
+      }
     }
 
     const responseBody = JSON.stringify({
