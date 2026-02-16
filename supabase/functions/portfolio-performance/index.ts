@@ -68,7 +68,7 @@ async function fetchBars(
       end: endISO,
       limit: '10000',
       adjustment: 'split',
-      feed: 'sip',
+      feed: 'iex',
       sort: 'asc',
     };
     if (pageToken) params.page_token = pageToken;
