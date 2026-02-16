@@ -42,9 +42,6 @@ export const PerformanceHeader = ({
 
   return (
     <div className="mb-4">
-      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Total value  
-
-      </p>
       <p className="text-4xl md:text-5xl font-bold tracking-tight">
         {formatCurrency(shownValue)}
       </p>
