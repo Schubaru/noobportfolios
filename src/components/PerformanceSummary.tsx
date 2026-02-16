@@ -24,7 +24,7 @@ const RANGE_LABELS: Record<TimeRange, string> = {
   '1D': 'today',
   '1W': 'past week',
   '1M': 'past month',
-  'ALL': 'all-time',
+  'ALL': 'all-time'
 };
 
 export const PerformanceHeader = ({
@@ -34,7 +34,7 @@ export const PerformanceHeader = ({
   availableRanges,
   rangeGain,
   rangeGainPercent,
-  displayHoldingsValue,
+  displayHoldingsValue
 }: PerformanceHeaderProps) => {
   const isPositive = rangeGain >= 0;
   const hasHoldings = metrics.holdingsValue > 0;
@@ -42,19 +42,19 @@ export const PerformanceHeader = ({
 
   return (
     <div className="mb-4">
-      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-        Investing
+      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Total value  
+
       </p>
       <p className="text-4xl md:text-5xl font-bold tracking-tight">
         {formatCurrency(shownValue)}
       </p>
-      {hasHoldings && (
-        <div className="flex flex-col gap-6 mt-2">
+      {hasHoldings &&
+      <div className="flex flex-col gap-6 mt-2">
           <div className="flex items-center gap-3">
             <div className={cn(
-              "flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium",
-              isPositive ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
-            )}>
+            "flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium",
+            isPositive ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"
+          )}>
               {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
               <span>{isPositive ? '+' : ''}{formatCurrency(rangeGain)}</span>
               <span className="text-xs opacity-80">
@@ -64,36 +64,36 @@ export const PerformanceHeader = ({
             <span className="text-xs text-muted-foreground">{RANGE_LABELS[selectedRange]}</span>
           </div>
           <div className="flex gap-1">
-            {availableRanges.map(range => (
-              <Button
-                key={range}
-                variant={selectedRange === range ? 'default' : 'ghost'}
-                size="sm"
-                className={cn(
-                  "h-7 px-2 text-xs",
-                  selectedRange !== range && "hover:bg-primary/10 hover:text-primary"
-                )}
-                onClick={() => onRangeChange(range)}
-              >
+            {availableRanges.map((range) =>
+          <Button
+            key={range}
+            variant={selectedRange === range ? 'default' : 'ghost'}
+            size="sm"
+            className={cn(
+              "h-7 px-2 text-xs",
+              selectedRange !== range && "hover:bg-primary/10 hover:text-primary"
+            )}
+            onClick={() => onRangeChange(range)}>
+
                 {range}
               </Button>
-            ))}
+          )}
           </div>
         </div>
-      )}
-      {!hasHoldings && (
-        <p className="text-sm text-muted-foreground mt-2">
+      }
+      {!hasHoldings &&
+      <p className="text-sm text-muted-foreground mt-2">
           No investments yet. Start trading to see your portfolio value.
         </p>
-      )}
-    </div>
-  );
+      }
+    </div>);
+
 };
 
 export const PerformanceDetails = ({
   metrics,
   cash,
-  startingCash,
+  startingCash
 }: PerformanceSummaryProps) => {
   const isPositiveUnrealized = metrics.unrealizedPL >= 0;
   const isPositiveDaily = metrics.dailyPL !== null && metrics.dailyPL >= 0;
@@ -136,18 +136,18 @@ export const PerformanceDetails = ({
             {hasDailyData && isPositiveDaily ? <TrendingUp className="w-4 h-4 text-muted-foreground" /> : hasDailyData ? <TrendingDown className="w-4 h-4 text-muted-foreground" /> : <Activity className="w-4 h-4 text-muted-foreground" />}
             <p className="text-xs text-muted-foreground">Today</p>
           </div>
-          {hasDailyData ? (
-            <p className={cn("text-lg font-semibold", isPositiveDaily ? "text-success" : "text-destructive")}>
+          {hasDailyData ?
+          <p className={cn("text-lg font-semibold", isPositiveDaily ? "text-success" : "text-destructive")}>
               {isPositiveDaily ? '+' : ''}{formatCurrency(metrics.dailyPL!)}
-              {metrics.dailyPLPercent !== null && (
-                <span className="text-sm ml-1 opacity-80">
+              {metrics.dailyPLPercent !== null &&
+            <span className="text-sm ml-1 opacity-80">
                   ({formatPercent(metrics.dailyPLPercent)})
                 </span>
-              )}
-            </p>
-          ) : (
-            <p className="text-lg font-semibold text-muted-foreground">—</p>
-          )}
+            }
+            </p> :
+
+          <p className="text-lg font-semibold text-muted-foreground">—</p>
+          }
         </div>
       </div>
 
@@ -172,8 +172,8 @@ export const PerformanceDetails = ({
           </div>
         </div>
       </div>
-    </div>
-  );
+    </div>);
+
 };
 
 const PerformanceSummary = ({
@@ -192,14 +192,14 @@ const PerformanceSummary = ({
           onRangeChange={() => {}}
           availableRanges={['ALL']}
           rangeGain={metrics.unrealizedPL}
-          rangeGainPercent={metrics.allTimePLPercent}
-        />
+          rangeGainPercent={metrics.allTimePLPercent} />
+
       </div>
       <div className="mt-6">
         <PerformanceDetails metrics={metrics} cash={cash} startingCash={startingCash} />
       </div>
-    </div>
-  );
+    </div>);
+
 };
 
 export default PerformanceSummary;
