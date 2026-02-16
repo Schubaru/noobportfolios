@@ -1,73 +1,153 @@
 
 
-# Make the Portfolio Chart Feel Alive
+# Switch Chart + Pricing from Finnhub to Alpaca Market Data
 
-## Current State Assessment
+## Overview
 
-Most of the requested functionality already exists:
-- Live point injection for 1D: implemented (backend lines 332-370)
-- Scheduled cron snapshots: two jobs running (hourly during market hours + daily close)
-- Trade-triggered snapshots with trade_id dedup: implemented in `snapshot-portfolio`
-- Coverage gating (skip if < 98%): implemented in both snapshot functions
-- No avg_cost fallback in snapshot writes: implemented
-- Cost basis tracking and UPL delta math: implemented in previous change
+Replace the four pricing/charting edge functions with Alpaca-backed equivalents while keeping Finnhub for fundamentals, profile, dividends, and search. The frontend stays untouched -- all changes are backend-only, preserving the existing response contracts.
 
-## Gaps to Close
+## What Changes
 
-### 1. Frontend: 1D refresh is too slow (60s)
+### 1. New: `supabase/functions/_shared/alpaca.ts` (shared helper)
 
-Currently `REFRESH_MS = 60_000` for all ranges. For 1D to feel alive during market hours, refresh should be 15-20 seconds. Longer ranges don't need frequent updates.
+A small module imported by all Alpaca-powered functions:
 
-**File: `src/components/PortfolioGrowthChart.tsx`**
-- Replace fixed `REFRESH_MS = 60_000` with a function that returns range-dependent intervals:
-  - 1D: 15 seconds
-  - 1W: 2 minutes
-  - 1M: 5 minutes
-  - ALL: 10 minutes
-- Update the auto-refresh `useEffect` to use the range-specific interval
+- Reads `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` from `Deno.env`
+- If either is missing, provides a helper that returns a 500 response with `"Alpaca keys not configured"`
+- Exports an `alpacaFetch(path, params?)` function that:
+  - Base URL: `https://data.alpaca.markets`
+  - Sets headers: `APCA-API-KEY-ID` and `APCA-API-SECRET-KEY`
+  - Includes retry with exponential backoff (reuse existing pattern)
+  - Returns the `Response` object
 
-### 2. Backend: Reduce 1D response cache TTL
+### 2. Rewrite: `supabase/functions/market-quote/index.ts`
 
-Currently 15 seconds. Reduce to 10 seconds so the faster frontend refresh actually gets fresh data.
+**Current**: Calls Finnhub `/quote?symbol=X`
+**New**: Calls Alpaca `GET /v2/stocks/{symbol}/snapshot`
 
-**File: `supabase/functions/portfolio-performance/index.ts`**
-- Change `case '1D': return 15_000;` to `return 10_000;`
+- Extract `latestTrade.p` as price (fallback: `minuteBar.c`)
+- Extract `prevDailyBar.c` as prevClose
+- Compute `change = price - prevClose`, `changePct = (change / prevClose) * 100`
+- Return the **same normalized shape**: `{ symbol, price, change, changePct, dayHigh, dayLow, dayOpen, prevClose, timestamp }`
+- Keep in-memory cache (60s TTL)
+- If Alpaca keys missing: return 500 with clear message, no crash
 
-### 3. Backend: Remove avg_cost price fallback for historical points
+### 3. Rewrite: `supabase/functions/market-quote-batch/index.ts`
 
-Line 308 falls back to `avg_cost` when no market price is found. This can create misleading chart shapes if avg_cost differs from actual market price. Instead, carry forward the last known market price for that symbol within the same date range.
+**Current**: Loops Finnhub `/quote` per symbol sequentially
+**New**: Single Alpaca call `GET /v2/stocks/snapshots?symbols=SYM1,SYM2,...`
 
-**File: `supabase/functions/portfolio-performance/index.ts`**
-- In the bucket loop, if no daily price and no current quote is found for a symbol, use the most recent price from `symbol_daily_prices` for that symbol (any earlier date), or from `currentQuotes` if available. Only if absolutely no price exists anywhere, skip that holding's contribution (treat as 0) rather than using avg_cost.
-- This prevents artificial flatness or spikes from cost-basis-as-price.
+- One API call for up to 20 symbols (vs N sequential calls before)
+- Normalize each snapshot to the same `QuoteData` shape
+- Return `{ quotes: Record<string, QuoteData>, errors?: Record<string, string> }`
+- Keep in-memory cache (120s TTL) per symbol
+- Major improvement: no more sequential 150ms delays between symbols
 
-### 4. Backend: Use `symbol_last_quotes` for today's intraday fallback
+### 4. Rewrite: `supabase/functions/market-history/index.ts`
 
-For 1D buckets earlier today where the live quote is the only source, if the Finnhub fetch fails, fall back to `symbol_last_quotes` (which snapshot-portfolio already populates). This prevents gaps in the 1D chart from transient API failures.
+**Current**: Calls Finnhub `/stock/candle` (free tier = daily only)
+**New**: Calls Alpaca `GET /v2/stocks/bars?symbols=SYM&timeframe=...&start=ISO&end=ISO`
 
-**File: `supabase/functions/portfolio-performance/index.ts`**
-- Before fetching Finnhub quotes, load `symbol_last_quotes` for all symbols
-- In `batchGetQuotes`, if Finnhub fails and cache misses, check `symbol_last_quotes` (with a 30-min staleness threshold)
+- Supports all timeframes (1Min, 5Min, 15Min, 1Hour, 1Day) -- no more free-tier limitation
+- Normalize to existing shape: `{ symbol, resolution, candles: [{ timestamp, close }] }`
+- Cache: 1 hour for daily, 5 min for intraday
+- This unlocks intraday chart data that Finnhub free tier blocked
 
-## Gain/Loss Math (No Change Needed)
+### 5. Rewrite: `supabase/functions/portfolio-performance/index.ts`
 
-The current implementation already uses Unrealized P/L Delta (`(hv - cb) - baselineUPL`) which correctly isolates market movement and prevents capital deployment from showing as gain. This satisfies:
-- "Buying assets does NOT create artificial gains"
-- "Gain/Loss reflects only market movement"
+**Current**: Reconstructs portfolio value using DB snapshots + Finnhub quotes + lazy Finnhub candle backfill
+**New**: Bar-driven valuation using Alpaca bars
 
-Note: The spec says `Gain/Loss = current_hv - baseline_hv`, but that formula would count buying more stock as a gain. The current UPL delta approach is the correct one for the stated acceptance criteria.
+Core logic change:
 
-## Files Modified
+```text
+A) Map range to Alpaca timeframe + window:
+   1D  -> 5Min bars,  today market open to now
+   1W  -> 30Min bars, now - 7d to now
+   1M  -> 1Hour bars, now - 30d to now
+   ALL -> 1Day bars,  portfolio created_at to now
 
-1. `src/components/PortfolioGrowthChart.tsx` -- range-dependent refresh intervals
-2. `supabase/functions/portfolio-performance/index.ts` -- reduced 1D cache TTL, remove avg_cost fallback, add symbol_last_quotes fallback
+B) Fetch holdings (symbol, shares, avg_cost) + cash from DB
 
-## No Changes Needed (Already Implemented)
+C) Single Alpaca call: GET /v2/stocks/bars?symbols=SYM1,SYM2,...&timeframe=X&start=ISO&end=ISO
+   (multi-symbol in one request)
 
-- Live point for 1D (append/replace last point with t=now)
-- Scheduled cron snapshots (hourly market hours + daily close)
-- Trade-triggered snapshots with trade_id dedup
-- Coverage gating (< 98% skips write)
-- No avg_cost in snapshot writes
-- Cost basis in every data point
+D) Align timestamps:
+   - Union all bar timestamps across symbols as canonical x-axis
+   - Forward-fill: for each symbol at time t, use latest bar at or before t
+   - This avoids gaps from symbols with different trading volumes
+
+E) Compute per timestamp:
+   hv(t) = SUM(shares * price_at_t)
+   cb = SUM(shares * avg_cost)  (constant, from DB)
+   v(t) = hv(t) + cash
+
+F) Downsample to ~300 points max (time-based)
+
+G) Return: { points: [{ t, v, hv, cb }], range, available }
+```
+
+- Still appends a live point for 1D using Alpaca snapshot (reuses the new market-quote logic)
+- Removes Finnhub lazy-backfill code (no longer needed -- Alpaca provides bars directly)
+- Removes dependency on `symbol_daily_prices` and `symbol_last_quotes` for chart rendering (those tables remain for snapshot-portfolio which stays on Finnhub)
+- Response cache TTLs remain: 1D=10s, 1W=5m, 1M=15m, ALL=1h
+
+### 6. No Changes (Stays on Finnhub)
+
+- `market-profile` -- company profile data
+- `market-fundamentals` -- PE, EPS, market cap, etc.
+- `market-dividends` -- dividend history
+- `market-search` -- symbol search
+- `snapshot-portfolio` -- snapshot writer (still uses Finnhub for quotes)
+- `snapshot-all-portfolios` -- cron snapshot runner
+- `backfill-daily-prices` -- historical price backfill
+- `get-top-growth-picks` -- AI growth picks
+- `initialize-portfolio` -- portfolio setup
+
+### 7. No Frontend Changes
+
+The response contracts are identical. The frontend (`PortfolioGrowthChart.tsx`, `finnhub.ts`, `usePortfolioQuotes.ts`) continues to work without modification.
+
+## Config Updates
+
+Add to `supabase/config.toml` (no JWT verification, matching existing pattern):
+- No new entries needed -- all four functions already have `verify_jwt = false` entries
+
+## Env Vars (NOT Added Yet)
+
+The code will reference these but gracefully return 500 if missing:
+- `ALPACA_API_KEY_ID`
+- `ALPACA_API_SECRET_KEY`
+
+## Technical Details
+
+### Alpaca API Endpoints Used
+
+| Endpoint | Used By | Purpose |
+|---|---|---|
+| `GET /v2/stocks/{symbol}/snapshot` | market-quote | Single symbol current price |
+| `GET /v2/stocks/snapshots?symbols=...` | market-quote-batch | Multi-symbol current prices |
+| `GET /v2/stocks/bars?symbols=...&timeframe=...` | market-history, portfolio-performance | Historical + intraday bars |
+
+### Key Advantages Over Finnhub Free Tier
+
+- Intraday bars (1Min, 5Min, etc.) available -- Finnhub restricted these to premium
+- Multi-symbol bars in a single API call -- no sequential throttling needed
+- Multi-symbol snapshots in one call -- batch quotes become a single request
+- No 60 calls/min rate limit concern for the bar-based chart engine
+
+### Files Created/Modified
+
+1. **Create**: `supabase/functions/_shared/alpaca.ts`
+2. **Rewrite**: `supabase/functions/market-quote/index.ts`
+3. **Rewrite**: `supabase/functions/market-quote-batch/index.ts`
+4. **Rewrite**: `supabase/functions/market-history/index.ts`
+5. **Rewrite**: `supabase/functions/portfolio-performance/index.ts`
+
+### Verification (Before Secrets)
+
+- All functions compile and deploy without Alpaca env vars set
+- Calling any Alpaca-powered function returns: `{ "error": "Alpaca keys not configured" }` with status 500
+- Finnhub-powered functions (profile, fundamentals, dividends, search) continue working normally
+- Frontend renders the "keys not configured" state gracefully (chart shows error message)
 
