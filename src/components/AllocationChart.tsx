@@ -34,19 +34,19 @@ const AllocationChart = ({ holdings }: AllocationChartProps) => {
   };
 
   return (
-    <div className="glass-card p-6">
-      <h3 className="text-sm font-semibold mb-4">Asset Allocation</h3>
+    <div className="glass-card p-4 h-full flex flex-col justify-center">
+      <h3 className="text-sm font-semibold mb-3">Asset Allocation</h3>
       
-      <div className="flex flex-col md:flex-row items-center gap-6">
-        <div className="w-[200px] h-[200px] flex-shrink-0">
+      <div className="flex items-center gap-4">
+        <div className="w-[120px] h-[120px] flex-shrink-0">
           <ResponsiveContainer width="100%" height="100%">
-            <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+            <PieChart margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
               <Pie
                 data={allocation}
                 cx="50%"
                 cy="50%"
-                innerRadius={50}
-                outerRadius={75}
+                innerRadius={35}
+                outerRadius={55}
                 paddingAngle={2}
                 dataKey="percentage"
               >
@@ -59,19 +59,19 @@ const AllocationChart = ({ holdings }: AllocationChartProps) => {
           </ResponsiveContainer>
         </div>
 
-        <div className="flex-1 space-y-3 w-full">
+        <div className="flex-1 space-y-2">
           {allocation.map((item) => (
             <div key={item.assetClass} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div 
-                  className="w-3 h-3 rounded-full flex-shrink-0" 
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
                   style={{ backgroundColor: item.color }}
                 />
-                <span className="text-sm">{getAssetClassLabel(item.assetClass)}</span>
+                <span className="text-xs">{getAssetClassLabel(item.assetClass)}</span>
               </div>
               <div className="text-right">
-                <span className="text-sm font-medium">{item.percentage.toFixed(1)}%</span>
-                <span className="text-xs text-muted-foreground ml-2">
+                <span className="text-xs font-medium">{item.percentage.toFixed(1)}%</span>
+                <span className="text-[10px] text-muted-foreground ml-1.5">
                   {formatCurrency(item.value)}
                 </span>
               </div>
