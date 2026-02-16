@@ -62,9 +62,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Auth: require CRON_SECRET header
+    // Auth: require CRON_SECRET header OR service role key via Authorization
     const providedSecret = req.headers.get('x-cron-secret') || '';
-    if (!CRON_SECRET || providedSecret !== CRON_SECRET) {
+    const authHeader = req.headers.get('Authorization') || '';
+    const providedToken = authHeader.replace('Bearer ', '');
+    const isValidCronSecret = CRON_SECRET && providedSecret === CRON_SECRET;
+    const isServiceRole = providedToken === SERVICE_ROLE_KEY;
+    if (!isValidCronSecret && !isServiceRole) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
