@@ -262,12 +262,16 @@ const PortfolioDetail = () => {
         </div>
 
         {/* Portfolio position & Allocation */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <div className="lg:col-span-2">
-            <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 items-stretch">
+          <div className="lg:col-span-2 flex">
+            <div className="flex-1">
+              <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
+            </div>
           </div>
-          <div>
-            <AllocationChart holdings={portfolio.holdings} />
+          <div className="flex">
+            <div className="flex-1">
+              <AllocationChart holdings={portfolio.holdings} />
+            </div>
           </div>
         </div>
 

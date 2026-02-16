@@ -97,7 +97,7 @@ export const PerformanceDetails = ({
   const hasDailyData = metrics.hasDailyBaseline && metrics.dailyPL !== null;
 
   return (
-    <div className="glass-card p-6">
+    <div className="glass-card p-6 h-full">
       <h2 className="text-lg font-semibold mb-4">Portfolio position</h2>
 
       {/* Breakdown grid */}
