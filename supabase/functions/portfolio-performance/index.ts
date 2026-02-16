@@ -318,8 +318,8 @@ Deno.serve(async (req) => {
       const totalValue = holdingsValue + cashAtTime;
       points.push({
         t: new Date(bucketTime).toISOString(),
-        v: totalValue,
-        hv: holdingsValue,
+        v: Math.round(totalValue * 100) / 100,
+        hv: Math.round(holdingsValue * 100) / 100, // always numeric, never null
       });
     }
 

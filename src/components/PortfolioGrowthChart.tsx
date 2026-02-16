@@ -136,7 +136,12 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
       return;
     }
     const baseline = firstHoldingsPoint.hv ?? 0;
-    const current = points[points.length - 1].hv ?? 0;
+    // Use LAST point with hv > 0, not just last array element (avoids trailing hv=0 buckets)
+    let lastHoldingsPoint = firstHoldingsPoint;
+    for (let i = points.length - 1; i >= 0; i--) {
+      if ((points[i].hv ?? 0) > 0) { lastHoldingsPoint = points[i]; break; }
+    }
+    const current = lastHoldingsPoint.hv ?? 0;
     const gain = current - baseline;
     const pct = baseline > 0 ? gain / baseline : 0;
     onRangeStats({ gain, pct });
@@ -166,12 +171,23 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     return first?.hv ?? 0;
   }, [perfData]);
 
+  // Index of first point with holdings (for hover clamping)
+  const firstHoldingsIndex = useMemo(() => {
+    if (!perfData?.available || !perfData.points.length) return -1;
+    return perfData.points.findIndex(p => (p.hv ?? 0) > 0);
+  }, [perfData]);
+
   const handleMouseMove = useCallback((state: any) => {
     if (!state?.activePayload?.length || !onHoverChange) return;
     isHoveringRef.current = true;
     const point: ChartPoint = state.activePayload[0].payload;
     if (hoverDebounceRef.current) cancelAnimationFrame(hoverDebounceRef.current);
     hoverDebounceRef.current = requestAnimationFrame(() => {
+      // If hovering on a pre-investment point (hv=0), show gain=0
+      if (point.portfolioValue <= 0 || baselineHV <= 0) {
+        onHoverChange({ portfolioValue: point.portfolioValue, gain: 0, gainPercent: 0, isHovering: true });
+        return;
+      }
       const gain = point.portfolioValue - baselineHV;
       const pct = baselineHV > 0 ? gain / baselineHV : 0;
       onHoverChange({ portfolioValue: point.portfolioValue, gain, gainPercent: pct, isHovering: true });
