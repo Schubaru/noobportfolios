@@ -108,7 +108,7 @@ export const PerformanceDetails = ({
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">Total invested</p>
+            <p className="text-xs text-muted-foreground">Invested</p>
           </div>
           <p className="text-lg font-semibold">{formatCurrency(metrics.costBasis)}</p>
         </div>
