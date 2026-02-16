@@ -7,8 +7,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  DropdownMenuTrigger } from
+'@/components/ui/dropdown-menu';
 import noobLogo from '@/assets/noobportlogo.png';
 
 interface HeaderProps {
@@ -29,7 +29,7 @@ const Header = ({ onCreateClick, showCreate = true }: HeaderProps) => {
         <Link to="/" className="flex items-center gap-3 group">
           <img src={noobLogo} alt="N00B Portfolios" className="w-10 h-10 rounded-xl" />
           <div>
-            <h1 className="text-lg font-bold tracking-tight">
+            <h1 className="text-lg font-bold tracking-tight font-mono">
               N00B <span className="text-primary">Portfolios</span>
             </h1>
             <p className="text-[10px] text-muted-foreground -mt-0.5">Paper Trading</p>
@@ -37,18 +37,18 @@ const Header = ({ onCreateClick, showCreate = true }: HeaderProps) => {
         </Link>
         
         <div className="flex items-center gap-3">
-          {showCreate && onCreateClick && (
-            <button
-              onClick={onCreateClick}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-all hover:scale-105 active:scale-95"
-            >
+          {showCreate && onCreateClick &&
+          <button
+            onClick={onCreateClick}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-all hover:scale-105 active:scale-95">
+
               <Plus className="w-4 h-4" />
               <span className="hidden sm:inline">New Portfolio</span>
             </button>
-          )}
+          }
 
-          {user && (
-            <DropdownMenu>
+          {user &&
+          <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="rounded-xl">
                   <User className="h-5 w-5" />
@@ -65,11 +65,11 @@ const Header = ({ onCreateClick, showCreate = true }: HeaderProps) => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          )}
+          }
         </div>
       </div>
-    </header>
-  );
+    </header>);
+
 };
 
 export default Header;
