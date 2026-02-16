@@ -13,11 +13,8 @@ import PortfolioGrowthChart, { TimeRange, ChartHoverState } from '@/components/P
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
-import { callSnapshotPortfolio } from '@/lib/snapshots';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
-
-const AUTO_SNAPSHOT_MS = 60_000;
 
 const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -34,9 +31,7 @@ const PortfolioDetail = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDividendBreakdown, setShowDividendBreakdown] = useState(false);
   const [hasFetchedPrices, setHasFetchedPrices] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
-  const [snapshotKey, setSnapshotKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   // Range state
   const [selectedRange, setSelectedRange] = useState<TimeRange>('1D');
@@ -44,7 +39,6 @@ const PortfolioDetail = () => {
   // Hover scrubbing state
   const [hoverState, setHoverState] = useState<ChartHoverState | null>(null);
 
-  const autoSnapshotRef = useRef<NodeJS.Timeout | null>(null);
   const isPageVisibleRef = useRef(true);
 
   const availableRanges = useMemo((): TimeRange[] => {
@@ -65,18 +59,6 @@ const PortfolioDetail = () => {
   const handleHoverChange = useCallback((state: ChartHoverState | null) => {
     setHoverState(state);
   }, []);
-
-  const triggerSnapshot = useCallback(async (reason: 'trade' | 'view_load' | 'auto', tradeId?: string) => {
-    if (!id) return;
-    const result = await callSnapshotPortfolio(id, reason, tradeId);
-    if (result) {
-      setLastUpdated(result.last_snapshot_at);
-      setStale(result.stale);
-      if (result.snapshot_written) {
-        setSnapshotKey(k => k + 1);
-      }
-    }
-  }, [id]);
 
   const loadPortfolioData = useCallback(async (forceRefresh = false, freshPortfolio?: Portfolio) => {
     if (!id) return;
@@ -124,23 +106,6 @@ const PortfolioDetail = () => {
     }
   }, [portfoliosLoading, id, hasFetchedPrices, loadPortfolioData]);
 
-  // On first load, trigger a view_load snapshot
-  useEffect(() => {
-    if (id && hasFetchedPrices) {
-      triggerSnapshot('view_load');
-    }
-  }, [id, hasFetchedPrices, triggerSnapshot]);
-
-  // Auto snapshot every 60s
-  useEffect(() => {
-    autoSnapshotRef.current = setInterval(() => {
-      if (isPageVisibleRef.current && hasFetchedPrices) {
-        triggerSnapshot('auto');
-      }
-    }, AUTO_SNAPSHOT_MS);
-    return () => { if (autoSnapshotRef.current) clearInterval(autoSnapshotRef.current); };
-  }, [triggerSnapshot, hasFetchedPrices]);
-
   // Visibility handling
   useEffect(() => {
     const handler = () => { isPageVisibleRef.current = !document.hidden; };
@@ -152,7 +117,6 @@ const PortfolioDetail = () => {
     setIsRefreshing(true);
     await fetchPortfolios();
     await loadPortfolioData(true);
-    await triggerSnapshot('auto');
     setIsRefreshing(false);
   };
 
@@ -172,11 +136,12 @@ const PortfolioDetail = () => {
     setIsTradeModalOpen(true);
   };
 
-  const handleTradeComplete = async (tradeId?: string) => {
+  const handleTradeComplete = async () => {
     const freshPortfolios = await fetchPortfolios();
     const freshPortfolio = freshPortfolios.find(p => p.id === id);
     await loadPortfolioData(true, freshPortfolio);
-    await triggerSnapshot('trade', tradeId);
+    // Trigger chart refresh
+    setRefreshKey(k => k + 1);
   };
 
   if (isLoading || portfoliosLoading) {
@@ -215,12 +180,6 @@ const PortfolioDetail = () => {
               <h1 className="text-2xl md:text-3xl font-bold">{portfolio.name}</h1>
               <div className="flex items-center gap-3 text-sm text-muted-foreground">
                 <span>Created {new Date(portfolio.createdAt).toLocaleDateString()}</span>
-                {lastUpdated && (
-                  <span className="flex items-center gap-1">
-                    <span className="text-muted-foreground/60">•</span>
-                    <span>Updated {new Date(lastUpdated).toLocaleTimeString()}</span>
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -253,10 +212,8 @@ const PortfolioDetail = () => {
           />
           <PortfolioGrowthChart
             portfolioId={portfolio.id}
-            snapshotKey={snapshotKey}
+            refreshKey={refreshKey}
             selectedRange={selectedRange}
-            stale={stale}
-            lastUpdated={lastUpdated}
             onHoverChange={handleHoverChange}
           />
         </div>

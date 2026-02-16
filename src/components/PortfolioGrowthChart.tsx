@@ -1,24 +1,20 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/portfolio';
-import { Badge } from '@/components/ui/badge';
 
 export type TimeRange = '1D' | '1W' | '1M' | 'ALL';
 
 interface PerformancePoint {
   t: string;
   v: number;
-  hv: number | null;
-  cb: number | null;
-  source: string | null;
+  hv: number;
 }
 
 interface PerformanceResponse {
   points: PerformancePoint[];
   range: string;
   available: boolean;
-  first_snapshot_at: string | null;
   message?: string;
 }
 
@@ -26,7 +22,6 @@ interface ChartPoint {
   timestamp: number;
   investedPL: number;
   holdingsValue: number;
-  source: string | null;
 }
 
 export interface ChartHoverState {
@@ -39,9 +34,7 @@ export interface ChartHoverState {
 interface PortfolioGrowthChartProps {
   portfolioId: string;
   selectedRange: TimeRange;
-  snapshotKey: number;
-  stale?: boolean;
-  lastUpdated?: string | null;
+  refreshKey: number;
   onHoverChange?: (state: ChartHoverState | null) => void;
 }
 
@@ -78,14 +71,11 @@ function CustomTooltip({ active, payload }: any) {
       <p className={`text-sm font-semibold mt-1 ${point.investedPL >= 0 ? 'text-success' : 'text-destructive'}`}>
         {sign}{formatCurrency(point.investedPL)}
       </p>
-      {point.source === 'trade' && (
-        <Badge variant="outline" className="mt-1 text-[10px] px-1.5 py-0">Trade executed</Badge>
-      )}
     </div>
   );
 }
 
-const PortfolioGrowthChart = ({ portfolioId, selectedRange, snapshotKey, stale, lastUpdated, onHoverChange }: PortfolioGrowthChartProps) => {
+const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverChange }: PortfolioGrowthChartProps) => {
   const [perfData, setPerfData] = useState<PerformanceResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isHoveringRef = useRef(false);
@@ -104,10 +94,10 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, snapshotKey, stale, 
     loadData();
   }, [loadData]);
 
-  // Reload on snapshotKey change (trade, etc.)
+  // Reload on refreshKey change (trade, etc.)
   useEffect(() => {
-    if (snapshotKey > 0) loadData();
-  }, [snapshotKey, loadData]);
+    if (refreshKey > 0) loadData();
+  }, [refreshKey, loadData]);
 
   // Auto-refresh
   useEffect(() => {
@@ -125,7 +115,6 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, snapshotKey, stale, 
       timestamp: new Date(p.t).getTime(),
       investedPL: (p.hv ?? p.v) - baselineHV,
       holdingsValue: p.hv ?? p.v,
-      source: p.source,
     }));
   }, [perfData]);
 
@@ -143,11 +132,9 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, snapshotKey, stale, 
     return [lo, hi];
   }, [chartData]);
 
-  const isFlat = chartData.length >= 2 && chartData.every(d => d.investedPL === chartData[0].investedPL);
   const latestPL = chartData.length > 0 ? chartData[chartData.length - 1].investedPL : 0;
   const lineColor = latestPL >= 0 ? 'hsl(var(--chart-positive))' : 'hsl(var(--chart-negative))';
   const gradientId = `pl-gradient-${portfolioId}`;
-  const tradeDots = chartData.filter(d => d.source === 'trade');
 
   const baselineHV = chartData.length > 0 ? chartData[0].holdingsValue : 0;
 
@@ -211,9 +198,6 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, snapshotKey, stale, 
               animationDuration={300}
               animationEasing="ease-in-out"
             />
-            {tradeDots.map((td, i) => (
-              <ReferenceDot key={`trade-${i}`} x={td.timestamp} y={td.investedPL} r={4} fill="hsl(var(--primary))" stroke="hsl(var(--background))" strokeWidth={2} />
-            ))}
           </AreaChart>
         </ResponsiveContainer>
       </div>

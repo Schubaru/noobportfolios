@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.snapshot-all-portfolios]
 verify_jwt = false
+
+[functions.backfill-daily-prices]
+verify_jwt = false
