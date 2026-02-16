@@ -342,6 +342,36 @@ export type Database = {
         }
         Relationships: []
       }
+      symbol_quote_cache: {
+        Row: {
+          day_high: number | null
+          day_low: number | null
+          day_open: number | null
+          prev_close: number | null
+          price: number
+          symbol: string
+          updated_at: string
+        }
+        Insert: {
+          day_high?: number | null
+          day_low?: number | null
+          day_open?: number | null
+          prev_close?: number | null
+          price: number
+          symbol: string
+          updated_at?: string
+        }
+        Update: {
+          day_high?: number | null
+          day_low?: number | null
+          day_open?: number | null
+          prev_close?: number | null
+          price?: number
+          symbol?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           executed_at: string

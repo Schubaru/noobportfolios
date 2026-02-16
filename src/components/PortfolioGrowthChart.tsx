@@ -37,6 +37,14 @@ export interface RangeStats {
   pct: number;
 }
 
+interface PerformanceResponse {
+  points: PerformancePoint[];
+  range: string;
+  available: boolean;
+  message?: string;
+  holdingsCount?: number;
+}
+
 interface PortfolioGrowthChartProps {
   portfolioId: string;
   selectedRange: TimeRange;
@@ -45,14 +53,20 @@ interface PortfolioGrowthChartProps {
   onRangeStats?: (stats: RangeStats) => void;
 }
 
-function getRefreshMs(range: TimeRange): number {
-  switch (range) {
-    case '1D': return 15_000;
-    case '1W': return 2 * 60_000;
-    case '1M': return 5 * 60_000;
-    case 'ALL': return 10 * 60_000;
-  }
+function getRefreshMs(range: TimeRange, holdingsCount: number): number {
+  const base = (() => {
+    switch (range) {
+      case '1D': return 15_000;
+      case '1W': return 60_000;
+      case '1M': return 60_000;
+      case 'ALL': return 5 * 60_000;
+    }
+  })();
+  // Degrade for large portfolios
+  return holdingsCount > 25 ? base * 2 : base;
 }
+
+const MIN_FETCH_INTERVAL_MS = 15_000;
 
 async function fetchPerformance(portfolioId: string, range: TimeRange): Promise<PerformanceResponse | null> {
   try {
@@ -95,27 +109,43 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
   const isHoveringRef = useRef(false);
   const hoverDebounceRef = useRef<number | null>(null);
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef(0);
+  const holdingsCountRef = useRef(0);
 
   const loadData = useCallback(async () => {
+    // Safety throttle: skip if less than 15s since last fetch
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < MIN_FETCH_INTERVAL_MS) return;
+    lastFetchTimeRef.current = now;
+
     const data = await fetchPerformance(portfolioId, selectedRange);
-    if (data) setPerfData(data);
+    if (data) {
+      setPerfData(data);
+      if (data.holdingsCount !== undefined) {
+        holdingsCountRef.current = data.holdingsCount;
+      }
+    }
     setIsLoading(false);
   }, [portfolioId, selectedRange]);
 
   // Initial load + range change
   useEffect(() => {
     setIsLoading(true);
+    lastFetchTimeRef.current = 0; // Reset throttle on range change
     loadData();
   }, [loadData]);
 
   // Reload on refreshKey change (trade, etc.)
   useEffect(() => {
-    if (refreshKey > 0) loadData();
+    if (refreshKey > 0) {
+      lastFetchTimeRef.current = 0; // Allow immediate fetch after trade
+      loadData();
+    }
   }, [refreshKey, loadData]);
 
   // Auto-refresh
   useEffect(() => {
-    const ms = getRefreshMs(selectedRange);
+    const ms = getRefreshMs(selectedRange, holdingsCountRef.current);
     refreshTimerRef.current = setInterval(() => {
       if (!isHoveringRef.current) loadData();
     }, ms);

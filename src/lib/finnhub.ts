@@ -204,7 +204,7 @@ export function formatMetricCurrency(num: number | null): string {
 
 // Client-side quote cache to avoid hammering the API
 const quoteCache = new Map<string, { quote: FinnhubQuote; timestamp: number }>();
-const QUOTE_CACHE_TTL = 120000; // 2 minutes cache to handle API outages
+const QUOTE_CACHE_TTL = 30000; // 30s to match server-side shared cache
 
 // Fetch multiple quotes using batch endpoint for efficiency
 export async function fetchMultipleQuotes(symbols: string[]): Promise<Map<string, FinnhubQuote>> {

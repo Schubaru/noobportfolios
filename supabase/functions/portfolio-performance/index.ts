@@ -10,14 +10,14 @@ const corsHeaders = {
 
 type Range = '1D' | '1W' | '1M' | 'ALL';
 
-// ── Response cache ──
+// ── Response cache (bars only, not live point) ──
 const responseCache = new Map<string, { body: string; ts: number }>();
 function responseTTL(range: Range): number {
   switch (range) {
-    case '1D': return 10_000;
-    case '1W': return 5 * 60_000;
-    case '1M': return 15 * 60_000;
-    case 'ALL': return 60 * 60_000;
+    case '1D': return 60_000;      // 60s for bar data
+    case '1W': return 60_000;      // 60s
+    case '1M': return 15 * 60_000; // 15m
+    case 'ALL': return 60 * 60_000; // 1h
   }
 }
 
@@ -25,7 +25,6 @@ function responseTTL(range: Range): number {
 function rangeConfig(range: Range, portfolioCreatedAt: number, now: number) {
   switch (range) {
     case '1D': {
-      // Market open 9:30 ET = 14:30 UTC
       const today = new Date(now);
       today.setUTCHours(14, 30, 0, 0);
       let start = today.getTime();
@@ -96,27 +95,72 @@ async function fetchBars(
   return result;
 }
 
-// ── Fetch live snapshots from Alpaca ──
-async function fetchSnapshots(
-  cfg: AlpacaConfig,
+// ── Fetch live quotes from shared DB cache via quote-cache-refresh ──
+async function fetchLiveQuotesFromCache(
   symbols: string[],
 ): Promise<Map<string, number>> {
   const result = new Map<string, number>();
   if (symbols.length === 0) return result;
 
-  const res = await alpacaFetch('/v2/stocks/snapshots', cfg, {
-    symbols: symbols.join(','),
-  });
-  if (!res.ok) return result;
+  // Use service role to read symbol_quote_cache directly
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
 
-  const snapshots = await res.json();
-  for (const sym of symbols) {
-    const snap = snapshots[sym];
-    if (snap) {
-      const price = snap.latestTrade?.p ?? snap.minuteBar?.c ?? snap.dailyBar?.c;
-      if (price) result.set(sym, price);
+  // First try to read fresh quotes from cache
+  const { data: cached } = await supabase
+    .from('symbol_quote_cache')
+    .select('symbol, price, updated_at')
+    .in('symbol', symbols);
+
+  const now = Date.now();
+  const QUOTE_FRESHNESS_MS = 30_000; // 30s — accept slightly stale
+  const staleSymbols: string[] = [];
+
+  for (const row of (cached || [])) {
+    const age = now - new Date(row.updated_at).getTime();
+    if (age < QUOTE_FRESHNESS_MS) {
+      result.set(row.symbol, Number(row.price));
+    } else {
+      staleSymbols.push(row.symbol);
     }
   }
+
+  // Check for symbols not in cache at all
+  const cachedSymbols = new Set((cached || []).map(r => r.symbol));
+  for (const sym of symbols) {
+    if (!cachedSymbols.has(sym) && !result.has(sym)) {
+      staleSymbols.push(sym);
+    }
+  }
+
+  // If we have stale symbols, call quote-cache-refresh to update them
+  if (staleSymbols.length > 0) {
+    try {
+      const refreshUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/quote-cache-refresh?symbols=${staleSymbols.join(',')}&max_age_ms=15000`;
+      const res = await fetch(refreshUrl, {
+        headers: {
+          'apikey': Deno.env.get('SUPABASE_ANON_KEY')!,
+        },
+      });
+      if (res.ok) {
+        const { quotes } = await res.json();
+        for (const [sym, q] of Object.entries(quotes as Record<string, { price: number }>)) {
+          result.set(sym, q.price);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to refresh stale quotes:', err);
+      // Fall back to stale cache data
+      for (const row of (cached || [])) {
+        if (!result.has(row.symbol)) {
+          result.set(row.symbol, Number(row.price));
+        }
+      }
+    }
+  }
+
   return result;
 }
 
@@ -128,7 +172,7 @@ function downsample<T extends { t: string }>(points: T[], maxPoints: number): T[
   for (let i = 0; i < maxPoints - 1; i++) {
     result.push(points[Math.round(i * step)]);
   }
-  result.push(points[points.length - 1]); // always include last
+  result.push(points[points.length - 1]);
   return result;
 }
 
@@ -164,10 +208,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Response cache
+    // Response cache check
     const cacheKey = `${portfolioId}:${range}`;
     const cachedResp = responseCache.get(cacheKey);
-    if (cachedResp && Date.now() - cachedResp.ts < responseTTL(range)) {
+    const ttl = responseTTL(range);
+    
+    // For 1D, we cache bar data separately and always append fresh live point
+    // For other ranges, cache the full response
+    if (range !== '1D' && cachedResp && Date.now() - cachedResp.ts < ttl) {
       return new Response(cachedResp.body, {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -211,16 +259,24 @@ Deno.serve(async (req) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Collect all unique symbols
     const allSymbols = [...new Set(holdingsRows.map(r => r.symbol))];
-
-    // Get range config
     const { timeframe, start, end } = rangeConfig(range, portfolioCreatedAt, now);
 
-    // Fetch bars from Alpaca
-    const barsBySymbol = await fetchBars(alpacaCfg, allSymbols, timeframe, start, end);
+    // For 1D, check bar cache separately (bars cached 60s)
+    const barCacheKey = `bars:${portfolioId}:${range}`;
+    let barsBySymbol: Map<string, { t: number; c: number }[]>;
+    
+    const cachedBars = responseCache.get(barCacheKey);
+    if (cachedBars && Date.now() - cachedBars.ts < ttl) {
+      barsBySymbol = new Map(JSON.parse(cachedBars.body));
+    } else {
+      barsBySymbol = await fetchBars(alpacaCfg, allSymbols, timeframe, start, end);
+      // Cache bars
+      const serialized = JSON.stringify([...barsBySymbol.entries()]);
+      responseCache.set(barCacheKey, { body: serialized, ts: Date.now() });
+    }
 
-    // Build canonical timestamp set (union of all bar timestamps)
+    // Build canonical timestamp set
     const tsSet = new Set<number>();
     for (const bars of barsBySymbol.values()) {
       for (const b of bars) tsSet.add(b.t);
@@ -228,7 +284,6 @@ Deno.serve(async (req) => {
     const canonicalTs = [...tsSet].sort((a, b) => a - b);
 
     if (canonicalTs.length === 0) {
-      // No bar data — maybe market is closed or no data. Return minimal.
       return new Response(JSON.stringify({
         points: [], range, available: false,
         message: 'No market data available for the selected range.',
@@ -236,7 +291,6 @@ Deno.serve(async (req) => {
     }
 
     // Pre-build forward-fill price maps per symbol
-    // For each symbol, at each canonical timestamp, find the latest bar at or before t
     const priceMaps = new Map<string, Map<number, number>>();
     for (const sym of allSymbols) {
       const bars = barsBySymbol.get(sym) || [];
@@ -245,7 +299,6 @@ Deno.serve(async (req) => {
       let barIdx = 0;
 
       for (const t of canonicalTs) {
-        // Advance barIdx to latest bar at or before t
         while (barIdx < bars.length && bars[barIdx].t <= t) {
           lastPrice = bars[barIdx].c;
           barIdx++;
@@ -257,7 +310,6 @@ Deno.serve(async (req) => {
       priceMaps.set(sym, priceMap);
     }
 
-    // Helper: get cash at a given timestamp
     function getCashAt(t: number): number {
       let cash = Number(portfolio!.starting_cash);
       for (const c of cashRows) {
@@ -270,7 +322,6 @@ Deno.serve(async (req) => {
       return cash;
     }
 
-    // Helper: get active holdings at a given timestamp
     function getActiveHoldings(t: number) {
       const active: { symbol: string; shares: number; avgCost: number }[] = [];
       for (const h of holdingsRows) {
@@ -305,9 +356,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Append live point for 1D
+    // Append live point for 1D using shared DB quote cache
     if (range === '1D' && allSymbols.length > 0) {
-      const liveQuotes = await fetchSnapshots(alpacaCfg, allSymbols);
+      const liveQuotes = await fetchLiveQuotesFromCache(allSymbols);
       const liveHoldings = getActiveHoldings(now);
       let liveHV = 0;
       let liveCB = 0;
@@ -317,7 +368,6 @@ Deno.serve(async (req) => {
         if (price) {
           liveHV += h.shares * price;
         } else {
-          // Fallback to last bar price
           const lastBar = priceMaps.get(h.symbol);
           if (lastBar && lastBar.size > 0) {
             const lastTs = [...lastBar.keys()].pop()!;
@@ -333,7 +383,6 @@ Deno.serve(async (req) => {
         cb: Math.round(liveCB * 100) / 100,
       };
 
-      // Replace or append
       if (rawPoints.length > 0) {
         const lastTs = new Date(rawPoints[rawPoints.length - 1].t).getTime();
         if (now - lastTs < 60_000) {
@@ -346,17 +395,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Downsample to ~300 points
     const points = downsample(rawPoints, 300);
 
     const responseBody = JSON.stringify({
       points,
       range,
       available: points.length >= 2,
+      holdingsCount: allSymbols.length,
       message: points.length < 2 ? 'Not enough data yet. Make a trade to start tracking.' : undefined,
     });
 
-    responseCache.set(cacheKey, { body: responseBody, ts: Date.now() });
+    // Cache full response for non-1D ranges
+    if (range !== '1D') {
+      responseCache.set(cacheKey, { body: responseBody, ts: Date.now() });
+    }
 
     return new Response(responseBody, {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
