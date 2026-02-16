@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Briefcase, Sparkles, Loader2, RefreshCw } from 'lucide-react';
+import { Briefcase, Sparkles, Loader2 } from 'lucide-react';
 import Header from '@/components/Header';
 import Disclaimer from '@/components/Disclaimer';
 import PortfolioCard from '@/components/PortfolioCard';
@@ -18,12 +18,7 @@ const Index = () => {
     isInitializing, 
     createPortfolio: createNewPortfolio, 
   } = usePortfolios();
-  const { 
-    getMetrics: getLiveMetrics, 
-    isRefreshing, 
-    lastUpdated,
-    refresh: refreshQuotes 
-  } = usePortfolioQuotes(portfolios);
+  const { getMetrics: getLiveMetrics } = usePortfolioQuotes(portfolios);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const handlePortfolioCreated = async (name: string) => {
@@ -59,25 +54,10 @@ const Index = () => {
             <h1 className="text-3xl md:text-4xl font-bold text-foreground">
               My portfolios
             </h1>
-            <div className="flex items-center gap-3 text-muted-foreground">
-              <span>Practice trading with $10,000 virtual cash per portfolio</span>
-              {lastUpdated && (
-                <span className="text-xs">
-                  • Updated {lastUpdated.toLocaleTimeString()}
-                </span>
-              )}
-            </div>
+            <p className="text-muted-foreground">
+              Practice trading with $10,000 virtual cash per portfolio
+            </p>
           </div>
-          {portfolios.length > 0 && (
-            <button
-              onClick={refreshQuotes}
-              disabled={isRefreshing}
-              className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50 self-start md:self-auto"
-              title="Refresh prices"
-            >
-              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-          )}
         </div>
 
         {/* Loading / Initializing State */}
