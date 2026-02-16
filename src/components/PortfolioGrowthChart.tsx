@@ -9,6 +9,7 @@ interface PerformancePoint {
   t: string;
   v: number;
   hv: number;
+  cb: number;
 }
 
 interface PerformanceResponse {
@@ -20,7 +21,7 @@ interface PerformanceResponse {
 
 interface ChartPoint {
   timestamp: number;
-  investedPL: number;
+  unrealizedPLDelta: number;
   portfolioValue: number;
 }
 
@@ -69,13 +70,13 @@ function CustomTooltip({ active, payload }: any) {
   const d = new Date(point.timestamp);
   const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  const sign = point.investedPL >= 0 ? '+' : '';
+  const sign = point.unrealizedPLDelta >= 0 ? '+' : '';
 
   return (
     <div className="rounded-lg border border-border/50 bg-card px-3 py-2 text-xs shadow-xl">
       <p className="text-muted-foreground">{dateStr} · {timeStr}</p>
-      <p className={`text-sm font-semibold mt-1 ${point.investedPL >= 0 ? 'text-success' : 'text-destructive'}`}>
-        {sign}{formatCurrency(point.investedPL)}
+      <p className={`text-sm font-semibold mt-1 ${point.unrealizedPLDelta >= 0 ? 'text-success' : 'text-destructive'}`}>
+        {sign}{formatCurrency(point.unrealizedPLDelta)}
       </p>
     </div>
   );
@@ -115,15 +116,18 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
 
   const chartData = useMemo((): ChartPoint[] => {
     if (!perfData?.available || !perfData.points.length) return [];
-    const firstNonZero = perfData.points.find(p => (p.hv ?? 0) > 0);
-    if (!firstNonZero) return [];
-    const baselineHV = firstNonZero.hv ?? 0;
+    const firstWithHoldings = perfData.points.find(p => (p.hv ?? 0) > 0);
+    if (!firstWithHoldings) return [];
+    const baselineUPL = (firstWithHoldings.hv ?? 0) - (firstWithHoldings.cb ?? 0);
 
-    return perfData.points.map(p => ({
-      timestamp: new Date(p.t).getTime(),
-      investedPL: (p.hv ?? 0) - baselineHV,
-      portfolioValue: p.hv ?? 0,
-    }));
+    return perfData.points.map(p => {
+      const upl = (p.hv ?? 0) - (p.cb ?? 0);
+      return {
+        timestamp: new Date(p.t).getTime(),
+        unrealizedPLDelta: upl - baselineUPL,
+        portfolioValue: p.hv ?? 0,
+      };
+    });
   }, [perfData]);
 
   // Emit range stats whenever chart data changes
@@ -135,21 +139,22 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
       onRangeStats({ gain: 0, pct: 0 });
       return;
     }
-    const baseline = firstHoldingsPoint.hv ?? 0;
-    // Use LAST point with hv > 0, not just last array element (avoids trailing hv=0 buckets)
+    const baselineUPL = (firstHoldingsPoint.hv ?? 0) - (firstHoldingsPoint.cb ?? 0);
+    // Use LAST point with hv > 0
     let lastHoldingsPoint = firstHoldingsPoint;
     for (let i = points.length - 1; i >= 0; i--) {
       if ((points[i].hv ?? 0) > 0) { lastHoldingsPoint = points[i]; break; }
     }
-    const current = lastHoldingsPoint.hv ?? 0;
-    const gain = current - baseline;
-    const pct = baseline > 0 ? gain / baseline : 0;
+    const currentUPL = (lastHoldingsPoint.hv ?? 0) - (lastHoldingsPoint.cb ?? 0);
+    const gain = currentUPL - baselineUPL;
+    const baselineCB = firstHoldingsPoint.cb ?? 0;
+    const pct = baselineCB > 0 ? gain / baselineCB : 0;
     onRangeStats({ gain, pct });
   }, [perfData, onRangeStats]);
 
   const yDomain = useMemo((): [number, number] => {
     if (chartData.length === 0) return [-10, 10];
-    const values = chartData.map(d => d.investedPL);
+    const values = chartData.map(d => d.unrealizedPLDelta);
     const min = Math.min(...values);
     const max = Math.max(...values);
     const range = max - min;
@@ -161,14 +166,15 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     return [lo, hi];
   }, [chartData]);
 
-  const latestPL = chartData.length > 0 ? chartData[chartData.length - 1].investedPL : 0;
+  const latestPL = chartData.length > 0 ? chartData[chartData.length - 1].unrealizedPLDelta : 0;
   const lineColor = latestPL >= 0 ? 'hsl(var(--chart-positive))' : 'hsl(var(--chart-negative))';
   const gradientId = `pl-gradient-${portfolioId}`;
 
-  const baselineHV = useMemo(() => {
+  const baselineUPL = useMemo(() => {
     if (!perfData?.available || !perfData.points.length) return 0;
     const first = perfData.points.find(p => (p.hv ?? 0) > 0);
-    return first?.hv ?? 0;
+    if (!first) return 0;
+    return (first.hv ?? 0) - (first.cb ?? 0);
   }, [perfData]);
 
   // Index of first point with holdings (for hover clamping)
@@ -184,15 +190,16 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     if (hoverDebounceRef.current) cancelAnimationFrame(hoverDebounceRef.current);
     hoverDebounceRef.current = requestAnimationFrame(() => {
       // If hovering on a pre-investment point (hv=0), show gain=0
-      if (point.portfolioValue <= 0 || baselineHV <= 0) {
+      if (point.portfolioValue <= 0) {
         onHoverChange({ portfolioValue: point.portfolioValue, gain: 0, gainPercent: 0, isHovering: true });
         return;
       }
-      const gain = point.portfolioValue - baselineHV;
-      const pct = baselineHV > 0 ? gain / baselineHV : 0;
+      const gain = point.unrealizedPLDelta;
+      const baselineCB = perfData?.points?.find(p => (p.hv ?? 0) > 0)?.cb ?? 0;
+      const pct = baselineCB > 0 ? gain / baselineCB : 0;
       onHoverChange({ portfolioValue: point.portfolioValue, gain, gainPercent: pct, isHovering: true });
     });
-  }, [onHoverChange, baselineHV]);
+  }, [onHoverChange, perfData]);
 
   const handleMouseLeave = useCallback(() => {
     isHoveringRef.current = false;
@@ -232,7 +239,7 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
             <Tooltip content={<CustomTooltip />} />
             <Area
               type="monotone"
-              dataKey="investedPL"
+              dataKey="unrealizedPLDelta"
               stroke={lineColor}
               strokeWidth={2}
               fill={`url(#${gradientId})`}
