@@ -115,22 +115,30 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
 
   const chartData = useMemo((): ChartPoint[] => {
     if (!perfData?.available || !perfData.points.length) return [];
-    const baselineV = perfData.points[0].v;
+    const firstNonZero = perfData.points.find(p => (p.hv ?? 0) > 0);
+    if (!firstNonZero) return [];
+    const baselineHV = firstNonZero.hv ?? 0;
 
     return perfData.points.map(p => ({
       timestamp: new Date(p.t).getTime(),
-      investedPL: p.v - baselineV,
-      portfolioValue: p.v,
+      investedPL: (p.hv ?? 0) - baselineHV,
+      portfolioValue: p.hv ?? 0,
     }));
   }, [perfData]);
 
   // Emit range stats whenever chart data changes
   useEffect(() => {
-    if (!perfData?.available || !perfData.points.length || !onRangeStats) return;
-    const first = perfData.points[0].v;
-    const last = perfData.points[perfData.points.length - 1].v;
-    const gain = last - first;
-    const pct = first > 0 ? gain / first : 0;
+    if (!perfData?.available || !perfData.points?.length || !onRangeStats) return;
+    const points = perfData.points;
+    const firstHoldingsPoint = points.find(p => (p.hv ?? 0) > 0);
+    if (!firstHoldingsPoint) {
+      onRangeStats({ gain: 0, pct: 0 });
+      return;
+    }
+    const baseline = firstHoldingsPoint.hv ?? 0;
+    const current = points[points.length - 1].hv ?? 0;
+    const gain = current - baseline;
+    const pct = baseline > 0 ? gain / baseline : 0;
     onRangeStats({ gain, pct });
   }, [perfData, onRangeStats]);
 
@@ -152,7 +160,11 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
   const lineColor = latestPL >= 0 ? 'hsl(var(--chart-positive))' : 'hsl(var(--chart-negative))';
   const gradientId = `pl-gradient-${portfolioId}`;
 
-  const baselineV = chartData.length > 0 ? chartData[0].portfolioValue : 0;
+  const baselineHV = useMemo(() => {
+    if (!perfData?.available || !perfData.points.length) return 0;
+    const first = perfData.points.find(p => (p.hv ?? 0) > 0);
+    return first?.hv ?? 0;
+  }, [perfData]);
 
   const handleMouseMove = useCallback((state: any) => {
     if (!state?.activePayload?.length || !onHoverChange) return;
@@ -160,11 +172,11 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     const point: ChartPoint = state.activePayload[0].payload;
     if (hoverDebounceRef.current) cancelAnimationFrame(hoverDebounceRef.current);
     hoverDebounceRef.current = requestAnimationFrame(() => {
-      const gain = point.portfolioValue - baselineV;
-      const pct = baselineV > 0 ? gain / baselineV : 0;
+      const gain = point.portfolioValue - baselineHV;
+      const pct = baselineHV > 0 ? gain / baselineHV : 0;
       onHoverChange({ portfolioValue: point.portfolioValue, gain, gainPercent: pct, isHovering: true });
     });
-  }, [onHoverChange, baselineV]);
+  }, [onHoverChange, baselineHV]);
 
   const handleMouseLeave = useCallback(() => {
     isHoveringRef.current = false;
