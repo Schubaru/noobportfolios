@@ -1,51 +1,58 @@
 
-# Fix Range Gain/Loss to Use Holdings Value (hv)
 
-## Problem
-Range P/L currently uses `v` (portfolio_value = holdings + cash). When a user buys assets, cash converts to holdings but total `v` stays the same -- however if the first chart point has `hv = 0` (no holdings yet), the gain appears as the full holdings value, creating fake gains.
+# Fix Flat 1D Chart with Live Last Point
 
-## Solution
-Switch all P/L calculations from `v` to `hv` (holdings_value only), and use the first non-zero `hv` point as the baseline. This isolates market movement from deposit/trade events.
+## Root Cause
 
-## Changes in `src/components/PortfolioGrowthChart.tsx`
+The backend already generates a final bucket at `t=now` using live Finnhub quotes. However:
+- Response cache TTL for 1D = 60s (line 19)
+- Quote cache TTL = 60s (line 14)
+- Frontend refresh = 60s
 
-### 1. Chart data (`chartData` useMemo, lines 116-125)
-- Find the first point where `hv > 0` as the baseline
-- Plot `investedPL = p.hv - baselineHV`
-- Store `portfolioValue = p.hv` (holdings value, not total)
-- If no point has `hv > 0`, return empty array
+So every refresh returns the same cached response with an identical last point. The chart never moves.
 
-### 2. Range stats (`onRangeStats` useEffect, lines 128-135)
-Replace with the user's provided logic:
-- Find first point where `hv > 0`
-- If none found, emit `{ gain: 0, pct: 0 }`
-- Otherwise: `gain = last.hv - firstNonZero.hv`, `pct = gain / firstNonZero.hv`
+## Changes
 
-### 3. Hover baseline (line 155)
-- Change `baselineV` to use the first non-zero `hv` from the raw points (not `chartData[0].portfolioValue`)
-- Hover gain becomes `point.portfolioValue - baselineHV` where both are `hv`-based
+### 1. Backend: `supabase/functions/portfolio-performance/index.ts`
 
-### 4. Chart line color (line 151)
-- Already uses `latestPL` from `chartData` -- no change needed, it will automatically reflect `hv`-based P/L
+**Reduce cache TTLs for 1D:**
+- Response cache: 60s --> 15s (line 19)
+- Quote cache: 60s --> 30s (line 14)
 
-## Technical Detail
+This ensures each frontend refresh (every 60s) gets a fresh response with updated quotes.
+
+**Explicitly ensure the last point is always "now":**
+After building all bucket points, if `range === '1D'`, replace or append a final point computed from the freshest quotes at `t = new Date().toISOString()`. This guarantees the chart's right edge always reflects the latest price, even if the bucket math rounded to a slightly earlier time.
+
+### 2. Frontend: `src/components/PortfolioGrowthChart.tsx`
+
+**Reduce refresh interval for better responsiveness (optional):**
+- Keep `REFRESH_MS = 60_000` (no change needed since backend cache is now 15s, so even 60s refreshes will get updated data)
+
+No other frontend changes required -- the existing `loadData` already replaces `perfData` with the full response, and `chartData` is derived from it.
+
+## Technical Details
 
 ```text
-Before:
-  baseline = points[0].v              (portfolio value at range start)
-  gain     = last.v - first.v         (includes cash movements)
+Before (1D):
+  Response cache = 60s, Quote cache = 60s
+  --> Frontend refresh at T+60s hits cached response from T+0s
+  --> Same points, same last timestamp --> flat line
 
-After:
-  baseline = first point where hv > 0 (first non-zero holdings value)
-  gain     = last.hv - baseline.hv    (pure market movement)
+After (1D):
+  Response cache = 15s, Quote cache = 30s
+  --> Frontend refresh at T+60s gets fresh response
+  --> Last point recalculated with updated quote prices
+  --> Chart right edge moves with market
 ```
 
-## Files Modified
-1. `src/components/PortfolioGrowthChart.tsx` -- switch from `v` to `hv`, use first non-zero baseline
+## Scope
 
-## Acceptance Criteria
-- Buy $1500 of assets with no price change: gain = $0
-- Assets move +5, +10, -3: gain shows +$12
-- All ranges (1D/1W/1M/ALL) use same first-non-zero-hv baseline rule
-- Hover tooltip consistent with resting gain/loss pill
-- No holdings in range: gain = $0, pct = 0%
+- Only 1D cache TTL is reduced. 1W (5m), 1M (15m), ALL (1h) remain unchanged.
+- No DB writes -- the live point is computed on-the-fly and only returned in the response.
+- Finnhub rate impact is minimal: quotes are still cached 30s server-side, and the 200ms sequential throttle remains.
+
+## Files Modified
+
+1. `supabase/functions/portfolio-performance/index.ts` -- reduce 1D response cache to 15s, quote cache to 30s, ensure last point is fresh
+
