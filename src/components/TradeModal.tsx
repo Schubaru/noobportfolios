@@ -1062,6 +1062,7 @@ const TradeModal = ({
     try {
       // Calculate new cash balance
       const newCash = tradeType === 'buy' ? portfolio.cash - total : portfolio.cash + total;
+      const tradeTime = new Date().toISOString();
 
       // 1. Update portfolio cash
       const {
@@ -1089,6 +1090,21 @@ const TradeModal = ({
             avg_cost: newAvgCost
           }).eq('id', existingDbHolding.id);
           if (updateError) throw updateError;
+
+          // Close prior holdings_history row and insert new one
+          await supabase.from('holdings_history')
+            .update({ effective_to: tradeTime })
+            .eq('portfolio_id', portfolio.id)
+            .eq('symbol', symbolToUse)
+            .is('effective_to', null);
+          
+          await supabase.from('holdings_history').insert({
+            portfolio_id: portfolio.id,
+            symbol: symbolToUse,
+            shares: totalShares,
+            avg_cost: newAvgCost,
+            effective_from: tradeTime,
+          });
         } else {
           // Create new holding
           const searchResult = searchResults.find(r => r.symbol === symbolToUse);
@@ -1104,17 +1120,35 @@ const TradeModal = ({
             asset_class: assetClass
           });
           if (insertError) throw insertError;
+
+          // Insert new holdings_history row
+          await supabase.from('holdings_history').insert({
+            portfolio_id: portfolio.id,
+            symbol: symbolToUse,
+            shares: shareCount,
+            avg_cost: price,
+            effective_from: tradeTime,
+          });
         }
       } else {
         // Sell - reduce or remove holding
         if (existingDbHolding) {
           const remainingShares = Number(existingDbHolding.shares) - shareCount;
+
+          // Close prior holdings_history row
+          await supabase.from('holdings_history')
+            .update({ effective_to: tradeTime })
+            .eq('portfolio_id', portfolio.id)
+            .eq('symbol', symbolToUse)
+            .is('effective_to', null);
+
           if (remainingShares <= 0.0001) {
             // Remove holding completely
             const {
               error: deleteError
             } = await supabase.from('holdings').delete().eq('id', existingDbHolding.id);
             if (deleteError) throw deleteError;
+            // No new holdings_history row (position closed)
           } else {
             // Update with remaining shares
             const {
@@ -1123,11 +1157,34 @@ const TradeModal = ({
               shares: remainingShares
             }).eq('id', existingDbHolding.id);
             if (updateError) throw updateError;
+
+            // Insert new holdings_history row with remaining shares
+            await supabase.from('holdings_history').insert({
+              portfolio_id: portfolio.id,
+              symbol: symbolToUse,
+              shares: remainingShares,
+              avg_cost: Number(existingDbHolding.avg_cost),
+              effective_from: tradeTime,
+            });
           }
         }
       }
 
-      // 3. Add transaction record
+      // 3. Update cash_history
+      // Close prior cash_history row
+      await supabase.from('cash_history')
+        .update({ effective_to: tradeTime })
+        .eq('portfolio_id', portfolio.id)
+        .is('effective_to', null);
+      
+      // Insert new cash_history row
+      await supabase.from('cash_history').insert({
+        portfolio_id: portfolio.id,
+        amount: newCash,
+        effective_from: tradeTime,
+      });
+
+      // 4. Add transaction record
       // Calculate realized P/L for sell transactions
       let realizedPL: number | null = null;
       if (tradeType === 'sell' && existingDbHolding) {
@@ -1151,10 +1208,6 @@ const TradeModal = ({
       
       // Store trade ID for passing to onTradeComplete
       lastTradeIdRef.current = txData?.id || null;
-
-      // 4. Snapshot is now handled server-side by the snapshot-portfolio edge function
-      // (called via onTradeComplete -> triggerSnapshot('trade', tradeId))
-      // No client-side value_history insert needed.
 
       // Success! Show animation instead of immediately closing
       setIsLoading(false);

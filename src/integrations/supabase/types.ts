@@ -14,6 +14,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      cash_history: {
+        Row: {
+          amount: number
+          effective_from: string
+          effective_to: string | null
+          id: string
+          portfolio_id: string
+        }
+        Insert: {
+          amount: number
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          portfolio_id: string
+        }
+        Update: {
+          amount?: number
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          portfolio_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_history_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_picks: {
         Row: {
           created_at: string
@@ -129,6 +161,44 @@ export type Database = {
           },
         ]
       }
+      holdings_history: {
+        Row: {
+          avg_cost: number
+          effective_from: string
+          effective_to: string | null
+          id: string
+          portfolio_id: string
+          shares: number
+          symbol: string
+        }
+        Insert: {
+          avg_cost: number
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          portfolio_id: string
+          shares: number
+          symbol: string
+        }
+        Update: {
+          avg_cost?: number
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          portfolio_id?: string
+          shares?: number
+          symbol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "holdings_history_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       income: {
         Row: {
           amount: number
@@ -224,6 +294,27 @@ export type Database = {
           id?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      symbol_daily_prices: {
+        Row: {
+          close_price: number
+          date: string
+          fetched_at: string
+          symbol: string
+        }
+        Insert: {
+          close_price: number
+          date: string
+          fetched_at?: string
+          symbol: string
+        }
+        Update: {
+          close_price?: number
+          date?: string
+          fetched_at?: string
+          symbol?: string
         }
         Relationships: []
       }
