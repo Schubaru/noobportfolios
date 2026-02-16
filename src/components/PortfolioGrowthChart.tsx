@@ -217,15 +217,6 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, snapshotKey, stale, 
           </AreaChart>
         </ResponsiveContainer>
       </div>
-      {isFlat && (
-        <p className="text-center text-xs text-muted-foreground mt-1">
-          Markets are closed — your chart will update when trading resumes.
-        </p>
-      )}
-      <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground/60 px-1">
-        {lastUpdated && <span>Updated {new Date(lastUpdated).toLocaleTimeString()}</span>}
-        {stale && <span>Some prices delayed</span>}
-      </div>
     </div>
   );
 };
