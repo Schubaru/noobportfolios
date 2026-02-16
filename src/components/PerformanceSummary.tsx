@@ -49,7 +49,7 @@ export const PerformanceHeader = ({
         {formatCurrency(shownValue)}
       </p>
       {hasHoldings && (
-        <div className="flex flex-col gap-2 mt-2">
+        <div className="flex flex-col gap-6 mt-2">
           <div className="flex items-center gap-3">
             <div className={cn(
               "flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium",
