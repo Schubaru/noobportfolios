@@ -1,51 +1,73 @@
 
-# Chart: Show Market Impact, Not Trade Activity
 
-## Problem
+# Make the Portfolio Chart Feel Alive
 
-The chart currently plots `holdingsValue - firstHoldingsValue`. When a user buys $500 of stock, the chart jumps up $500 instantly -- but that is not a market gain. It is capital being deployed. The chart should only move when market prices change the value of invested money.
+## Current State Assessment
 
-## Solution
+Most of the requested functionality already exists:
+- Live point injection for 1D: implemented (backend lines 332-370)
+- Scheduled cron snapshots: two jobs running (hourly during market hours + daily close)
+- Trade-triggered snapshots with trade_id dedup: implemented in `snapshot-portfolio`
+- Coverage gating (skip if < 98%): implemented in both snapshot functions
+- No avg_cost fallback in snapshot writes: implemented
+- Cost basis tracking and UPL delta math: implemented in previous change
 
-Track **cost basis** (what the user paid) alongside holdings value at every time bucket. The chart then plots **unrealized P/L** = `holdingsValue - costBasis`, which only changes when market prices move.
+## Gaps to Close
 
-```text
-Example:
-  T1: Own 10 AAPL @ $150, costBasis=$1500, hv=$1500 --> unrealizedPL = $0
-  T2: Buy 5 more AAPL @ $150, costBasis=$2250, hv=$2250 --> unrealizedPL = $0 (no jump!)
-  T3: AAPL rises to $155, costBasis=$2250, hv=$2325 --> unrealizedPL = +$75 (market moved!)
-```
+### 1. Frontend: 1D refresh is too slow (60s)
 
-## Changes
+Currently `REFRESH_MS = 60_000` for all ranges. For 1D to feel alive during market hours, refresh should be 15-20 seconds. Longer ranges don't need frequent updates.
 
-### 1. Backend: `supabase/functions/portfolio-performance/index.ts`
+**File: `src/components/PortfolioGrowthChart.tsx`**
+- Replace fixed `REFRESH_MS = 60_000` with a function that returns range-dependent intervals:
+  - 1D: 15 seconds
+  - 1W: 2 minutes
+  - 1M: 5 minutes
+  - ALL: 10 minutes
+- Update the auto-refresh `useEffect` to use the range-specific interval
 
-Add a `cb` (cost basis) field to each data point alongside the existing `hv` (holdings value):
+### 2. Backend: Reduce 1D response cache TTL
 
-- In the bucket loop (lines 272-324), compute `costBasis = SUM(shares x avg_cost)` for all active holdings at each bucket time, using the same time-window logic already used for `holdingsValue`
-- Add `cb: Math.round(costBasis * 100) / 100` to each point object
-- In the live last-point block (lines 327-358), also compute and include `liveCB` in the live point
-- Response shape changes from `{ t, v, hv }` to `{ t, v, hv, cb }`
+Currently 15 seconds. Reduce to 10 seconds so the faster frontend refresh actually gets fresh data.
 
-### 2. Frontend: `src/components/PortfolioGrowthChart.tsx`
+**File: `supabase/functions/portfolio-performance/index.ts`**
+- Change `case '1D': return 15_000;` to `return 10_000;`
 
-Update the chart to use unrealized P/L instead of raw holdings delta:
+### 3. Backend: Remove avg_cost price fallback for historical points
 
-- Add `cb` to the `PerformancePoint` interface
-- Change `chartData` derivation (lines 116-127):
-  - Compute `unrealizedPL = hv - cb` at each point
-  - Compute baseline unrealized P/L from first point with holdings
-  - Plot `unrealizedPL - baselineUnrealizedPL` as the Y-axis value (this shows the *change* in market-driven P/L over the selected range)
-- Update `rangeStats` calculation (lines 130-148) to use `hv - cb` instead of raw `hv`
-- Update hover handler (lines 180-195) to report gain based on unrealized P/L delta
-- Update tooltip to show unrealized P/L
+Line 308 falls back to `avg_cost` when no market price is found. This can create misleading chart shapes if avg_cost differs from actual market price. Instead, carry forward the last known market price for that symbol within the same date range.
 
-### 3. What This Means for the User
+**File: `supabase/functions/portfolio-performance/index.ts`**
+- In the bucket loop, if no daily price and no current quote is found for a symbol, use the most recent price from `symbol_daily_prices` for that symbol (any earlier date), or from `currentQuotes` if available. Only if absolutely no price exists anywhere, skip that holding's contribution (treat as 0) rather than using avg_cost.
+- This prevents artificial flatness or spikes from cost-basis-as-price.
 
-- **Before**: Buying stock makes the chart jump up. Selling makes it drop. Chart mixes trade activity with market performance.
-- **After**: Buying or selling stock has zero visible effect on the chart. The line only moves when market prices change. This accurately answers "how is the market treating my investments?"
+### 4. Backend: Use `symbol_last_quotes` for today's intraday fallback
+
+For 1D buckets earlier today where the live quote is the only source, if the Finnhub fetch fails, fall back to `symbol_last_quotes` (which snapshot-portfolio already populates). This prevents gaps in the 1D chart from transient API failures.
+
+**File: `supabase/functions/portfolio-performance/index.ts`**
+- Before fetching Finnhub quotes, load `symbol_last_quotes` for all symbols
+- In `batchGetQuotes`, if Finnhub fails and cache misses, check `symbol_last_quotes` (with a 30-min staleness threshold)
+
+## Gain/Loss Math (No Change Needed)
+
+The current implementation already uses Unrealized P/L Delta (`(hv - cb) - baselineUPL`) which correctly isolates market movement and prevents capital deployment from showing as gain. This satisfies:
+- "Buying assets does NOT create artificial gains"
+- "Gain/Loss reflects only market movement"
+
+Note: The spec says `Gain/Loss = current_hv - baseline_hv`, but that formula would count buying more stock as a gain. The current UPL delta approach is the correct one for the stated acceptance criteria.
 
 ## Files Modified
 
-1. `supabase/functions/portfolio-performance/index.ts` -- add `cb` field to each point
-2. `src/components/PortfolioGrowthChart.tsx` -- chart plots unrealized P/L delta instead of holdings delta
+1. `src/components/PortfolioGrowthChart.tsx` -- range-dependent refresh intervals
+2. `supabase/functions/portfolio-performance/index.ts` -- reduced 1D cache TTL, remove avg_cost fallback, add symbol_last_quotes fallback
+
+## No Changes Needed (Already Implemented)
+
+- Live point for 1D (append/replace last point with t=now)
+- Scheduled cron snapshots (hourly market hours + daily close)
+- Trade-triggered snapshots with trade_id dedup
+- Coverage gating (< 98% skips write)
+- No avg_cost in snapshot writes
+- Cost basis in every data point
+
