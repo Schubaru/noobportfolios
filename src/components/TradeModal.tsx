@@ -13,7 +13,7 @@ interface TradeModalProps {
   isOpen: boolean;
   onClose: () => void;
   portfolio: Portfolio;
-  onTradeComplete: () => void | Promise<void>;
+  onTradeComplete: (tradeId?: string) => void | Promise<void>;
   initialSymbol?: string;
 }
 type TradeType = 'buy' | 'sell';
@@ -847,6 +847,7 @@ const TradeModal = ({
   // Quote refresh interval
   const quoteRefreshRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchedSymbol = useRef<string | null>(null);
+  const lastTradeIdRef = useRef<string | null>(null);
   
   // Refs for back button scroll restoration
   const savedScrollPositionRef = useRef<number>(0);
@@ -1134,6 +1135,7 @@ const TradeModal = ({
         realizedPL = (price - avgCostAtSale) * shareCount;
       }
       const {
+        data: txData,
         error: txError
       } = await supabase.from('transactions').insert({
         portfolio_id: portfolio.id,
@@ -1144,63 +1146,15 @@ const TradeModal = ({
         price: price,
         total: total,
         realized_pl: realizedPL
-      });
+      }).select('id').single();
       if (txError) throw txError;
-
-      // 4. Add value history entry with invested_value, cost_basis, and P/L
-      // Calculate holdings value and cost basis after trade
-      let postHoldingsValue = 0;
-      let postCostBasis = 0;
       
-      for (const h of portfolio.holdings) {
-        if (h.symbol === symbolToUse) {
-          if (tradeType === 'buy') {
-            const newShares = h.shares + shareCount;
-            const newAvgCost = ((h.avgCost * h.shares) + (price * shareCount)) / newShares;
-            postHoldingsValue += (h.currentPrice || h.avgCost) * newShares;
-            postCostBasis += newAvgCost * newShares;
-          } else {
-            const remaining = h.shares - shareCount;
-            if (remaining > 0.0001) {
-              postHoldingsValue += (h.currentPrice || h.avgCost) * remaining;
-              postCostBasis += h.avgCost * remaining;
-            }
-          }
-        } else {
-          postHoldingsValue += (h.currentPrice || h.avgCost) * h.shares;
-          postCostBasis += h.avgCost * h.shares;
-        }
-      }
+      // Store trade ID for passing to onTradeComplete
+      lastTradeIdRef.current = txData?.id || null;
 
-      // If buying a new asset not in current holdings
-      const isNewAsset = !portfolio.holdings.find(h => h.symbol === symbolToUse);
-      if (isNewAsset && tradeType === 'buy') {
-        postHoldingsValue += price * shareCount;
-        postCostBasis += price * shareCount;
-      }
-
-      const postUnrealizedPL = postHoldingsValue - postCostBasis;
-      
-      // Cumulative realized P/L (existing + this trade)
-      const existingRealizedPL = portfolio.transactions
-        .filter(t => t.type === 'sell' && t.realizedPL !== undefined)
-        .reduce((sum, t) => sum + (t.realizedPL || 0), 0);
-      const postRealizedPL = existingRealizedPL + (realizedPL || 0);
-
-      const newPortfolioValue = newCash + postHoldingsValue;
-      const {
-        error: valueError
-      } = await supabase.from('value_history').insert({
-        portfolio_id: portfolio.id,
-        value: newPortfolioValue,
-        invested_value: postHoldingsValue,
-        cost_basis: postCostBasis,
-        unrealized_pl: postUnrealizedPL,
-        realized_pl: postRealizedPL,
-        source: 'trade',
-        metadata: { tradeSymbol: symbolToUse, tradeType, shares: shareCount, price } as any,
-      });
-      if (valueError) throw valueError;
+      // 4. Snapshot is now handled server-side by the snapshot-portfolio edge function
+      // (called via onTradeComplete -> triggerSnapshot('trade', tradeId))
+      // No client-side value_history insert needed.
 
       // Success! Show animation instead of immediately closing
       setIsLoading(false);
@@ -1215,8 +1169,9 @@ const TradeModal = ({
   // Handle success animation completion
   const handleSuccessComplete = useCallback(async () => {
     setTradeStatus('idle');
-    // Trigger immediate refresh of portfolio data before closing
-    await onTradeComplete();
+    // Trigger immediate refresh of portfolio data before closing, passing trade_id
+    await onTradeComplete(lastTradeIdRef.current || undefined);
+    lastTradeIdRef.current = null;
     onClose();
   }, [onTradeComplete, onClose]);
 

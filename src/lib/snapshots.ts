@@ -59,21 +59,25 @@ export const hasSnapshotToday = async (portfolioId: string): Promise<boolean> =>
 /** Call the snapshot-portfolio edge function */
 export const callSnapshotPortfolio = async (
   portfolioId: string,
-  reason: 'trade' | 'view_load' | 'auto' | 'manual_refresh'
+  reason: 'trade' | 'view_load' | 'auto' | 'manual_refresh',
+  tradeId?: string
 ): Promise<{
   total_value: number;
   holdings_value: number;
-  cash: number;
+  cash_value: number;
   day_reference_value: number;
   cost_basis: number;
   snapshot_written: boolean;
   last_snapshot_at: string | null;
   stale: boolean;
-  missing_symbols: string[];
+  quote_coverage: number;
+  quality: string;
 } | null> => {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/snapshot-portfolio`;
+    const body: Record<string, unknown> = { portfolio_id: portfolioId, reason };
+    if (tradeId) body.trade_id = tradeId;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -81,7 +85,7 @@ export const callSnapshotPortfolio = async (
         'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
       },
-      body: JSON.stringify({ portfolio_id: portfolioId, reason }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) return null;
     return await res.json();

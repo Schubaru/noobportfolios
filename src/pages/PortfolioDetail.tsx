@@ -66,9 +66,9 @@ const PortfolioDetail = () => {
     setHoverState(state);
   }, []);
 
-  const triggerSnapshot = useCallback(async (reason: 'trade' | 'view_load' | 'auto') => {
+  const triggerSnapshot = useCallback(async (reason: 'trade' | 'view_load' | 'auto', tradeId?: string) => {
     if (!id) return;
-    const result = await callSnapshotPortfolio(id, reason);
+    const result = await callSnapshotPortfolio(id, reason, tradeId);
     if (result) {
       setLastUpdated(result.last_snapshot_at);
       setStale(result.stale);
@@ -172,11 +172,11 @@ const PortfolioDetail = () => {
     setIsTradeModalOpen(true);
   };
 
-  const handleTradeComplete = async () => {
+  const handleTradeComplete = async (tradeId?: string) => {
     const freshPortfolios = await fetchPortfolios();
     const freshPortfolio = freshPortfolios.find(p => p.id === id);
     await loadPortfolioData(true, freshPortfolio);
-    await triggerSnapshot('trade');
+    await triggerSnapshot('trade', tradeId);
   };
 
   if (isLoading || portfoliosLoading) {
