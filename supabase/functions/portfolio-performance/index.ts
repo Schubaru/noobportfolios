@@ -16,7 +16,7 @@ const QUOTE_TTL = 30_000; // 30s
 const responseCache = new Map<string, { body: string; ts: number }>();
 function responseTTL(range: Range): number {
   switch (range) {
-    case '1D': return 15_000;
+    case '1D': return 10_000;
     case '1W': return 5 * 60_000;
     case '1M': return 15 * 60_000;
     case 'ALL': return 60 * 60_000;
@@ -263,6 +263,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Fetch symbol_last_quotes for intraday fallback
+    const lastQuotesMap = new Map<string, { price: number; ts: number }>();
+    if (allSymbols.length > 0) {
+      const { data: lastQuoteRows } = await serviceClient
+        .from('symbol_last_quotes')
+        .select('symbol, price, quote_time')
+        .in('symbol', allSymbols);
+      if (lastQuoteRows) {
+        for (const r of lastQuoteRows) {
+          lastQuotesMap.set(r.symbol, { price: Number(r.price), ts: new Date(r.quote_time).getTime() });
+        }
+      }
+    }
+
     // Fetch current quotes for today's buckets
     const currentQuotes = await batchGetQuotes(allSymbols);
 
@@ -288,11 +302,17 @@ Deno.serve(async (req) => {
           let price: number | null = null;
           if (isToday) {
             price = currentQuotes.get(h.symbol) ?? null;
+            // Fallback to symbol_last_quotes (30-min staleness)
+            if (price === null) {
+              const lq = lastQuotesMap.get(h.symbol);
+              if (lq && (now - lq.ts) < 30 * 60 * 1000) {
+                price = lq.price;
+              }
+            }
           } else {
-            // Try exact date, then nearby dates
+            // Try exact date, then carry forward closest earlier date
             price = dailyPrices.get(`${h.symbol}:${bucketDate}`) ?? null;
             if (price === null) {
-              // Find closest earlier date
               const sortedDates = [...dailyPrices.keys()]
                 .filter(k => k.startsWith(h.symbol + ':'))
                 .map(k => k.split(':')[1])
@@ -303,10 +323,15 @@ Deno.serve(async (req) => {
                 price = dailyPrices.get(`${h.symbol}:${sortedDates[0]}`) ?? null;
               }
             }
+            // Last resort: use currentQuotes if available (better than nothing)
+            if (price === null) {
+              price = currentQuotes.get(h.symbol) ?? null;
+            }
           }
-          // Fallback to avg_cost if no price available
-          if (price === null) price = avgCost;
-          holdingsValue += shares * price;
+          // If no price found anywhere, skip this holding (treat as 0) — never use avg_cost
+          if (price !== null) {
+            holdingsValue += shares * price;
+          }
         }
       }
 
@@ -341,8 +366,11 @@ Deno.serve(async (req) => {
           const shares = Number(h.shares);
           const avgCost = Number(h.avg_cost);
           liveCB += shares * avgCost;
-          const price = currentQuotes.get(h.symbol) ?? avgCost;
-          liveHV += shares * price;
+          const livePrice = currentQuotes.get(h.symbol)
+            ?? (lastQuotesMap.get(h.symbol)?.price ?? null);
+          if (livePrice !== null) {
+            liveHV += shares * livePrice;
+          }
         }
       }
       // Get current cash

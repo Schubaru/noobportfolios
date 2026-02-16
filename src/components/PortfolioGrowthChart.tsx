@@ -45,7 +45,14 @@ interface PortfolioGrowthChartProps {
   onRangeStats?: (stats: RangeStats) => void;
 }
 
-const REFRESH_MS = 60_000;
+function getRefreshMs(range: TimeRange): number {
+  switch (range) {
+    case '1D': return 15_000;
+    case '1W': return 2 * 60_000;
+    case '1M': return 5 * 60_000;
+    case 'ALL': return 10 * 60_000;
+  }
+}
 
 async function fetchPerformance(portfolioId: string, range: TimeRange): Promise<PerformanceResponse | null> {
   try {
@@ -108,11 +115,12 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
 
   // Auto-refresh
   useEffect(() => {
+    const ms = getRefreshMs(selectedRange);
     refreshTimerRef.current = setInterval(() => {
       if (!isHoveringRef.current) loadData();
-    }, REFRESH_MS);
+    }, ms);
     return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current); };
-  }, [loadData]);
+  }, [loadData, selectedRange]);
 
   const chartData = useMemo((): ChartPoint[] => {
     if (!perfData?.available || !perfData.points.length) return [];
