@@ -17,6 +17,7 @@ interface PerformanceHeaderProps extends PerformanceSummaryProps {
   availableRanges: TimeRange[];
   rangeGain: number;
   rangeGainPercent: number;
+  displayHoldingsValue?: number;
 }
 
 const RANGE_LABELS: Record<TimeRange, string> = {
@@ -33,9 +34,11 @@ export const PerformanceHeader = ({
   availableRanges,
   rangeGain,
   rangeGainPercent,
+  displayHoldingsValue,
 }: PerformanceHeaderProps) => {
   const isPositive = rangeGain >= 0;
   const hasHoldings = metrics.holdingsValue > 0;
+  const shownValue = displayHoldingsValue ?? metrics.holdingsValue;
 
   return (
     <div className="mb-4">
@@ -43,7 +46,7 @@ export const PerformanceHeader = ({
         Investing
       </p>
       <p className="text-4xl md:text-5xl font-bold tracking-tight">
-        {formatCurrency(metrics.holdingsValue)}
+        {formatCurrency(shownValue)}
       </p>
       {hasHoldings && (
         <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">

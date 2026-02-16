@@ -1,5 +1,4 @@
 import { supabase } from '@/integrations/supabase/client';
-import { Portfolio, PortfolioMetrics } from '@/lib/types';
 
 export interface SnapshotRow {
   id: string;
@@ -11,72 +10,6 @@ export interface SnapshotRow {
   realizedPL: number | null;
   source: string | null;
 }
-
-// Rate-limit: skip if last snapshot was < minMs ago (unless source is 'trade')
-const shouldCapture = async (portfolioId: string, minMs = 5000): Promise<boolean> => {
-  const { data } = await supabase
-    .from('value_history')
-    .select('recorded_at')
-    .eq('portfolio_id', portfolioId)
-    .order('recorded_at', { ascending: false })
-    .limit(1);
-  if (!data?.length) return true;
-  return Date.now() - new Date(data[0].recorded_at).getTime() >= minMs;
-};
-
-export const hasSnapshotToday = async (portfolioId: string): Promise<boolean> => {
-  const now = new Date();
-  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-
-  const { data } = await supabase
-    .from('value_history')
-    .select('id')
-    .eq('portfolio_id', portfolioId)
-    .gte('recorded_at', startOfDay.toISOString())
-    .lt('recorded_at', endOfDay.toISOString())
-    .limit(1);
-
-  return (data?.length ?? 0) > 0;
-};
-
-export const capturePortfolioSnapshot = async (
-  portfolioId: string,
-  portfolio: Portfolio,
-  metrics: PortfolioMetrics,
-  source: 'auto' | 'trade' | 'daily' | 'baseline'
-): Promise<void> => {
-  try {
-    // Rate-limit: auto/baseline = 5s, trade/daily = 2min
-    if (source === 'auto' || source === 'baseline') {
-      const ok = await shouldCapture(portfolioId, 5000);
-      if (!ok) return;
-    } else if (source === 'trade' || source === 'daily') {
-      const ok = await shouldCapture(portfolioId, 120_000);
-      if (!ok) return;
-    }
-
-    const holdingsMetadata = portfolio.holdings.map(h => ({
-      symbol: h.symbol,
-      shares: h.shares,
-      avgCost: h.avgCost,
-      currentPrice: h.currentPrice ?? h.avgCost,
-    }));
-
-    await supabase.from('value_history').insert({
-      portfolio_id: portfolioId,
-      value: metrics.totalValue,
-      invested_value: metrics.holdingsValue,
-      cost_basis: metrics.costBasis ?? 0,
-      unrealized_pl: metrics.unrealizedPL,
-      realized_pl: metrics.realizedPL,
-      source,
-      metadata: holdingsMetadata as any,
-    });
-  } catch (err) {
-    console.warn('Snapshot capture failed:', err);
-  }
-};
 
 export const fetchSnapshots = async (
   portfolioId: string,
@@ -107,26 +40,52 @@ export const fetchSnapshots = async (
   }));
 };
 
-export const getLastSnapshotAge = async (portfolioId: string): Promise<number | null> => {
+export const hasSnapshotToday = async (portfolioId: string): Promise<boolean> => {
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
   const { data } = await supabase
     .from('value_history')
-    .select('recorded_at')
+    .select('id')
     .eq('portfolio_id', portfolioId)
-    .order('recorded_at', { ascending: false })
+    .gte('recorded_at', startOfDay.toISOString())
+    .lt('recorded_at', endOfDay.toISOString())
     .limit(1);
-  if (!data?.length) return null;
-  return Date.now() - new Date(data[0].recorded_at).getTime();
+
+  return (data?.length ?? 0) > 0;
 };
 
-export const ensureRecentSnapshot = async (
+/** Call the snapshot-portfolio edge function */
+export const callSnapshotPortfolio = async (
   portfolioId: string,
-  portfolio: Portfolio,
-  metrics: PortfolioMetrics
-): Promise<void> => {
-  if (portfolio.holdings.length === 0) return;
-  const age = await getLastSnapshotAge(portfolioId);
-  // Create if no snapshots or last one > 15 min old
-  if (age === null || age >= 15 * 60 * 1000) {
-    await capturePortfolioSnapshot(portfolioId, portfolio, metrics, 'baseline');
+  reason: 'trade' | 'view_load' | 'auto' | 'manual_refresh'
+): Promise<{
+  total_value: number;
+  holdings_value: number;
+  cash: number;
+  day_reference_value: number;
+  cost_basis: number;
+  snapshot_written: boolean;
+  last_snapshot_at: string | null;
+  stale: boolean;
+  missing_symbols: string[];
+} | null> => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/snapshot-portfolio`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      },
+      body: JSON.stringify({ portfolio_id: portfolioId, reason }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
 };
