@@ -1,187 +1,154 @@
 
 
-# Harden Snapshot-Based Portfolio Chart
+# Deterministic Market-Aligned Valuation Engine
 
-## Summary
-This plan eliminates chart spikes/snapbacks, ensures trade snapshots are never missed, and fills data gaps when users aren't visiting -- all without changing UI layout. Changes span schema, two edge functions, a new scheduled function, and minor client-side wiring.
+## Overview
 
----
+Replace the current snapshot-driven chart system with a deterministic engine that computes portfolio value at fixed time buckets by reconstructing historical holdings and looking up market prices. Charts will no longer depend on user visits, trade events, or snapshot frequency.
 
-## 1. Database Schema Migration
+## What Changes
 
-### A) Extend `value_history` table
-Add new columns with defaults so existing rows remain valid:
+### Database: 3 new tables, 1 deprecation
 
-| Column | Type | Default | Purpose |
-|--------|------|---------|---------|
-| `cash_value` | numeric | 0 | Explicit cash at snapshot time |
-| `day_reference_value` | numeric | null | sum(shares * prevClose) + cash |
-| `quality` | text | 'good' | 'good', 'degraded', or 'stale' |
-| `quote_coverage` | numeric | null | 0..1 fraction of holdings covered |
-| `quote_time_spread_seconds` | int | null | max - min quote timestamps |
+1. **`holdings_history`** -- tracks every change to every holding over time
+   - `id`, `portfolio_id`, `symbol`, `shares`, `avg_cost`, `effective_from` (timestamptz), `effective_to` (nullable timestamptz)
+   - RLS: same pattern as `holdings` (join to `portfolios.user_id = auth.uid()`)
 
-### B) Create `symbol_last_quotes` table
+2. **`cash_history`** -- tracks every change to cash balance over time
+   - `id`, `portfolio_id`, `amount` (numeric), `effective_from` (timestamptz), `effective_to` (nullable timestamptz)
+   - RLS: same pattern
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `symbol` | text | Primary key |
-| `price` | numeric | Not null |
-| `prev_close` | numeric | Nullable |
-| `quote_time` | timestamptz | Not null |
-| `updated_at` | timestamptz | Default now() |
+3. **`symbol_daily_prices`** -- persistent daily close cache
+   - `symbol` (text), `date` (date), `close_price` (numeric), `fetched_at` (timestamptz)
+   - Primary key: `(symbol, date)`
+   - No RLS needed (public read, service-role write)
 
-No RLS needed -- only edge functions (service role) read/write this table. RLS will be disabled explicitly.
+4. **`value_history`** -- kept for now but no longer used as chart source. Will serve as migration fallback only.
 
-### C) Add index
-- `(portfolio_id, recorded_at DESC)` on `value_history` (likely exists, will add if missing)
+### Edge Function: Rewrite `portfolio-performance`
 
----
+The function will be completely rewritten:
 
-## 2. Edge Function: `snapshot-portfolio` Rewrite
-
-### Key changes from current implementation:
-
-**A) Parallel quote fetching (max 6 concurrent)**
-Replace sequential 150ms-delay loop with a concurrency-limited pool. Still respects rate limits via backoff on 429, but processes up to 6 symbols simultaneously.
-
-**B) `symbol_last_quotes` fallback**
-On successful quote, UPSERT into `symbol_last_quotes`. On failure, fallback to `symbol_last_quotes` only if `quote_time` is within 15 minutes. Never fall back to `avg_cost` as a price -- that causes spikes.
-
-**C) Coverage gating**
-Compute `quote_coverage` as fraction of total holdings value with valid quotes. If coverage < 0.98, set `quality='stale'` and skip the snapshot write entirely. Return `stale: true` with the last snapshot timestamp so the UI stays stable.
-
-**D) Trade idempotency**
-- Accept optional `trade_id` in the request body.
-- For `reason='trade'` with `trade_id`: check if `metadata->>'trade_id'` already exists in `value_history` for this portfolio. Skip write if duplicate.
-- For `reason='trade'` without `trade_id`: fall back to current 2-minute dedup (backwards compatibility).
-- Remove time-based dedup for trades entirely when `trade_id` is provided.
-
-**E) Richer snapshot data**
-Write all new columns: `cash_value`, `day_reference_value`, `quality`, `quote_coverage`, `quote_time_spread_seconds`.
-
-**F) Updated response**
-```
-{
-  total_value, holdings_value, cash_value, day_reference_value,
-  cost_basis, snapshot_written, last_snapshot_at,
-  stale, quote_coverage, quality
-}
-```
-
----
-
-## 3. Edge Function: `portfolio-performance` Rewrite
-
-### A) Quality filtering
-- Default query: `quality IN ('good')`. If that yields < 2 rows, include `'degraded'`. Never include `'stale'`.
-- Old rows without quality default to 'good' (column default handles this).
-
-### B) Time-bucket downsampling
-Replace index-based rounding with time-bucket approach:
-
-| Range | Bucket size | Max points |
-|-------|------------|------------|
-| 1D | 5 min | 288 |
-| 1W | 1 hour | 168 |
-| 1M | 4 hours | 180 |
-| ALL | 1 day | variable |
-
-For each bucket, take the last point. Always preserve:
-- First point in range
-- Last point in range
-- All `source='trade'` points (merge back in, then trim if over max)
-
-### C) Monotonic timestamp guarantee
-After merging trade points, sort by timestamp and deduplicate any points sharing the same timestamp (keep trade-sourced).
-
-### D) Response additions
-- Include `coverage_notes: string | null` if any degraded points were included.
-- Keep existing `available`, `points`, `range`, `first_snapshot_at` fields.
-
----
-
-## 4. New Edge Function: `snapshot-all-portfolios` (Scheduled)
-
-Create a new function that can be called by an external cron (or manually) to snapshot all active portfolios daily.
-
-**Endpoint:** `POST /functions/v1/snapshot-all-portfolios`
-**Auth:** Requires a `CRON_SECRET` header matching a stored secret (not user JWT).
+**Input:** `portfolio_id`, `range` (1D/1W/1M/ALL)
 
 **Logic:**
-1. Query all portfolios that have at least one holding.
-2. For each portfolio, call the snapshot-portfolio logic internally (reuse the same quote-fetch + coverage-gating).
-3. Process portfolios sequentially with 1s delays to stay within Finnhub limits.
-4. Log results: how many written, how many skipped (stale), how many failed.
-5. Return summary JSON.
+1. Generate deterministic time buckets based on range:
+   - 1D: every 5 min from market open to now
+   - 1W: every 30 min
+   - 1M: every 4 hours
+   - ALL: 1 bucket per day (midnight UTC)
 
-**Scheduling:** Since Lovable Cloud doesn't have native cron, the function will be secured with a `CRON_SECRET` environment variable. The user can set up an external cron service (e.g., cron-job.org, GitHub Actions, or Cloudflare Workers) to call it once or twice daily. The function is fully idempotent.
+2. For each bucket time T:
+   - Query `holdings_history` for rows where `effective_from <= T AND (effective_to IS NULL OR effective_to > T)`
+   - Query `cash_history` for the row active at T
+   - Get price: if T's date is before today, use `symbol_daily_prices`; if today, use current Finnhub quote (cached 60s)
+   - Compute `holdings_value = SUM(shares * price)`, `total_value = holdings_value + cash`
 
----
+3. Return array of `{t, v, hv}` points
 
-## 5. Client-Side Changes (Minimal)
+**Caching strategy (response-level, in-memory):**
+- 1D: 60s TTL
+- 1W: 5 min
+- 1M: 15 min
+- ALL: 1 hour
 
-### A) `src/lib/snapshots.ts`
-- Update `callSnapshotPortfolio` to accept optional `trade_id` parameter and include it in the request body.
-- Update return type to include `quality` and `quote_coverage`.
+### New Edge Function: `backfill-daily-prices`
 
-### B) `src/components/TradeModal.tsx`
-- After inserting the transaction, capture the returned transaction `id`.
-- Pass `trade_id` to `callSnapshotPortfolio` (via `onTradeComplete` callback or directly).
-- Note: The TradeModal already inserts a `value_history` row directly (lines 1191-1203). This client-side snapshot insert will be removed -- the edge function handles it now, preventing duplicate/inconsistent snapshots.
+A lightweight function that:
+- For each unique symbol in `holdings_history`, ensures `symbol_daily_prices` has an entry for each trading day
+- Fetches missing daily closes from Finnhub (using `/stock/candle` daily resolution or falling back to quote `pc`)
+- Called lazily by `portfolio-performance` when a needed date is missing, or periodically via cron
 
-### C) `src/pages/PortfolioDetail.tsx`
-- Update `handleTradeComplete` to pass the trade transaction ID to `triggerSnapshot('trade', tradeId)`.
-- No layout changes.
+### Trade Flow Changes (TradeModal.tsx)
 
-### D) `supabase/config.toml`
-- Add `[functions.snapshot-all-portfolios]` with `verify_jwt = false`.
+On trade execution, in addition to existing DB writes:
+1. **Close prior `holdings_history` row** (set `effective_to = now`) for that symbol
+2. **Insert new `holdings_history` row** with updated shares/avg_cost and `effective_from = now`
+3. **Close prior `cash_history` row** and insert new one with updated cash amount
+4. No snapshot writing -- just invalidate/refetch the performance endpoint
 
----
+### Frontend Changes (PortfolioGrowthChart.tsx)
 
-## 6. Remove Client-Side Snapshot Insert from TradeModal
+Minimal changes:
+- Remove `source` field handling (no more trade dots)
+- The response format stays similar (`points`, `range`, `available`)
+- Remove `snapshotKey` dependency -- replace with a simple refetch trigger after trade
 
-Currently, `TradeModal.tsx` (lines 1191-1203) inserts a `value_history` row directly using client-side calculated values (which can be stale/wrong since it uses `h.currentPrice || h.avgCost`). This is a source of spikes.
+### PortfolioDetail.tsx
 
-**Change:** Remove this direct insert. The edge function `snapshot-portfolio` with `reason='trade'` will handle it server-side with fresh quotes and coverage gating.
+- Remove `callSnapshotPortfolio` usage entirely
+- Remove auto-snapshot timer (60s interval)
+- Remove `stale`/`lastUpdated` state
+- On trade complete: just refetch portfolios + refetch performance (no snapshot call)
 
----
+### Data Migration
 
-## Technical Flow After Changes
+On first deploy, a one-time migration will:
+1. Populate `holdings_history` from current `holdings` table (all current holdings get `effective_from = created_at`, `effective_to = NULL`)
+2. Populate `cash_history` from current `portfolios.cash` (single row per portfolio, `effective_from = portfolio.created_at`)
+3. Backfill `holdings_history` from `transactions` table to reconstruct historical states
+
+## Sequence of Implementation
+
+1. Create database tables (`holdings_history`, `cash_history`, `symbol_daily_prices`) with RLS
+2. Write migration to backfill historical data from `transactions`
+3. Create `backfill-daily-prices` edge function
+4. Rewrite `portfolio-performance` edge function with deterministic bucket engine
+5. Update `TradeModal.tsx` to write `holdings_history` and `cash_history` on trade
+6. Update `PortfolioDetail.tsx` to remove snapshot logic
+7. Simplify `PortfolioGrowthChart.tsx` (remove trade dots, snapshot dependency)
+
+## Technical Details
+
+### Bucket Generation (pseudocode)
 
 ```text
-Trade executed in TradeModal
-  |-> Insert transaction (get trade_id)
-  |-> Update holdings/cash in DB
-  |-> Remove: client-side value_history insert
-  |-> Call onTradeComplete(trade_id)
-  |
-  v
-PortfolioDetail.handleTradeComplete(trade_id)
-  |-> callSnapshotPortfolio(id, 'trade', trade_id)
-  |   |-> Edge fn fetches fresh quotes (parallel, cached)
-  |   |-> Coverage >= 98%? Write snapshot. Else skip.
-  |   |-> Idempotent by trade_id (no duplicates)
-  |-> snapshotKey++ triggers chart reload
-  |
-  v
-Chart re-fetches portfolio-performance
-  |-> Returns quality-filtered, time-bucketed points
-  |-> Trade points always preserved
-  |-> No spikes from avg_cost fallback
+function generateBuckets(range, portfolioCreatedAt):
+  now = Date.now()
+  switch range:
+    1D:  start = todayMarketOpen(9:30 ET), step = 5min
+    1W:  start = now - 7d,                 step = 30min
+    1M:  start = now - 30d,                step = 4h
+    ALL: start = portfolioCreatedAt,       step = 1day
+
+  buckets = []
+  t = floor(start / step) * step
+  while t <= now:
+    buckets.push(t)
+    t += step
+  return buckets
 ```
 
----
+### Holdings Reconstruction Query
 
-## Files Changed
+```text
+SELECT symbol, shares, avg_cost
+FROM holdings_history
+WHERE portfolio_id = $1
+  AND effective_from <= $bucket_time
+  AND (effective_to IS NULL OR effective_to > $bucket_time)
+```
 
-| File | Action |
-|------|--------|
-| Database migration | Add columns to `value_history`, create `symbol_last_quotes` |
-| `supabase/functions/snapshot-portfolio/index.ts` | Rewrite (parallel quotes, coverage gating, trade_id dedup) |
-| `supabase/functions/portfolio-performance/index.ts` | Rewrite (quality filter, time-bucket downsample) |
-| `supabase/functions/snapshot-all-portfolios/index.ts` | Create (daily cron endpoint) |
-| `supabase/config.toml` | Add snapshot-all-portfolios config |
-| `src/lib/snapshots.ts` | Add trade_id param, update types |
-| `src/components/TradeModal.tsx` | Remove direct value_history insert, pass trade_id up |
-| `src/pages/PortfolioDetail.tsx` | Wire trade_id through handleTradeComplete |
+### Finnhub Rate Limit Safety
+
+- Daily prices: fetched once per symbol per day, stored permanently
+- Intraday quotes: cached 60s in-memory, max ~10 unique symbols per portfolio
+- Response caching prevents repeated computation
+- Estimated API calls per user visit: 1 batch of quotes (current holdings only)
+
+### What Gets Removed
+
+- `snapshot-portfolio` edge function calls from frontend
+- Auto-snapshot 60s timer in `PortfolioDetail`
+- `callSnapshotPortfolio` from `lib/snapshots.ts`
+- Trade dots (`ReferenceDot`) from chart
+- `value_history` as chart data source
+
+### What Stays Unchanged
+
+- UI layout (no visual changes)
+- `snapshot-portfolio` edge function file (kept for backward compatibility, can be removed later)
+- `value_history` table (kept, just unused for charts)
+- All metric calculations in `PerformanceSummary`
+- `HoldingsTable`, `AllocationChart`, `TradeModal` UI
 
