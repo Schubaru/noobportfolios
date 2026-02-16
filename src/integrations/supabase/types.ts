@@ -227,6 +227,30 @@ export type Database = {
         }
         Relationships: []
       }
+      symbol_last_quotes: {
+        Row: {
+          prev_close: number | null
+          price: number
+          quote_time: string
+          symbol: string
+          updated_at: string
+        }
+        Insert: {
+          prev_close?: number | null
+          price: number
+          quote_time: string
+          symbol: string
+          updated_at?: string
+        }
+        Update: {
+          prev_close?: number | null
+          price?: number
+          quote_time?: string
+          symbol?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           executed_at: string
@@ -276,11 +300,16 @@ export type Database = {
       }
       value_history: {
         Row: {
+          cash_value: number
           cost_basis: number | null
+          day_reference_value: number | null
           id: string
           invested_value: number | null
           metadata: Json | null
           portfolio_id: string
+          quality: string
+          quote_coverage: number | null
+          quote_time_spread_seconds: number | null
           realized_pl: number | null
           recorded_at: string
           source: string | null
@@ -288,11 +317,16 @@ export type Database = {
           value: number
         }
         Insert: {
+          cash_value?: number
           cost_basis?: number | null
+          day_reference_value?: number | null
           id?: string
           invested_value?: number | null
           metadata?: Json | null
           portfolio_id: string
+          quality?: string
+          quote_coverage?: number | null
+          quote_time_spread_seconds?: number | null
           realized_pl?: number | null
           recorded_at?: string
           source?: string | null
@@ -300,11 +334,16 @@ export type Database = {
           value: number
         }
         Update: {
+          cash_value?: number
           cost_basis?: number | null
+          day_reference_value?: number | null
           id?: string
           invested_value?: number | null
           metadata?: Json | null
           portfolio_id?: string
+          quality?: string
+          quote_coverage?: number | null
+          quote_time_spread_seconds?: number | null
           realized_pl?: number | null
           recorded_at?: string
           source?: string | null

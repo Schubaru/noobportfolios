@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.portfolio-performance]
 verify_jwt = false
+
+[functions.snapshot-all-portfolios]
+verify_jwt = false
