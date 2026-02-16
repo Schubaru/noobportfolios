@@ -21,14 +21,19 @@ interface PerformanceResponse {
 interface ChartPoint {
   timestamp: number;
   investedPL: number;
-  holdingsValue: number;
+  portfolioValue: number;
 }
 
 export interface ChartHoverState {
-  holdingsValue: number;
+  portfolioValue: number;
   gain: number;
   gainPercent: number;
   isHovering: boolean;
+}
+
+export interface RangeStats {
+  gain: number;
+  pct: number;
 }
 
 interface PortfolioGrowthChartProps {
@@ -36,6 +41,7 @@ interface PortfolioGrowthChartProps {
   selectedRange: TimeRange;
   refreshKey: number;
   onHoverChange?: (state: ChartHoverState | null) => void;
+  onRangeStats?: (stats: RangeStats) => void;
 }
 
 const REFRESH_MS = 60_000;
@@ -75,7 +81,7 @@ function CustomTooltip({ active, payload }: any) {
   );
 }
 
-const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverChange }: PortfolioGrowthChartProps) => {
+const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverChange, onRangeStats }: PortfolioGrowthChartProps) => {
   const [perfData, setPerfData] = useState<PerformanceResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isHoveringRef = useRef(false);
@@ -109,14 +115,24 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
 
   const chartData = useMemo((): ChartPoint[] => {
     if (!perfData?.available || !perfData.points.length) return [];
-    const baselineHV = perfData.points[0].hv ?? perfData.points[0].v;
+    const baselineV = perfData.points[0].v;
 
     return perfData.points.map(p => ({
       timestamp: new Date(p.t).getTime(),
-      investedPL: (p.hv ?? p.v) - baselineHV,
-      holdingsValue: p.hv ?? p.v,
+      investedPL: p.v - baselineV,
+      portfolioValue: p.v,
     }));
   }, [perfData]);
+
+  // Emit range stats whenever chart data changes
+  useEffect(() => {
+    if (!perfData?.available || !perfData.points.length || !onRangeStats) return;
+    const first = perfData.points[0].v;
+    const last = perfData.points[perfData.points.length - 1].v;
+    const gain = last - first;
+    const pct = first > 0 ? gain / first : 0;
+    onRangeStats({ gain, pct });
+  }, [perfData, onRangeStats]);
 
   const yDomain = useMemo((): [number, number] => {
     if (chartData.length === 0) return [-10, 10];
@@ -136,7 +152,7 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
   const lineColor = latestPL >= 0 ? 'hsl(var(--chart-positive))' : 'hsl(var(--chart-negative))';
   const gradientId = `pl-gradient-${portfolioId}`;
 
-  const baselineHV = chartData.length > 0 ? chartData[0].holdingsValue : 0;
+  const baselineV = chartData.length > 0 ? chartData[0].portfolioValue : 0;
 
   const handleMouseMove = useCallback((state: any) => {
     if (!state?.activePayload?.length || !onHoverChange) return;
@@ -144,11 +160,11 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     const point: ChartPoint = state.activePayload[0].payload;
     if (hoverDebounceRef.current) cancelAnimationFrame(hoverDebounceRef.current);
     hoverDebounceRef.current = requestAnimationFrame(() => {
-      const gain = point.holdingsValue - baselineHV;
-      const pct = baselineHV > 0 ? gain / baselineHV : 0;
-      onHoverChange({ holdingsValue: point.holdingsValue, gain, gainPercent: pct, isHovering: true });
+      const gain = point.portfolioValue - baselineV;
+      const pct = baselineV > 0 ? gain / baselineV : 0;
+      onHoverChange({ portfolioValue: point.portfolioValue, gain, gainPercent: pct, isHovering: true });
     });
-  }, [onHoverChange, baselineHV]);
+  }, [onHoverChange, baselineV]);
 
   const handleMouseLeave = useCallback(() => {
     isHoveringRef.current = false;
