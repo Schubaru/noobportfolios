@@ -1,48 +1,40 @@
 
-# Glassmorphism Sidebar Redesign
+# Fix Sidebar Navigation + Match Reference Design
 
-## Overview
-Apply a glassmorphism effect to the sidebar to match the reference image: frosted glass background with subtle transparency, a soft border glow, and rounded corners creating a floating card appearance against the dark background.
+## Problem 1: Navigation Not Working
+The `SidebarMenuButton` component has built-in click handling and styling via `data-active`. The current code passes `onClick` and custom className overrides that conflict with the component's internal behavior. The fix is to stop using `SidebarMenuButton` for portfolio items and use plain `div` elements instead, giving full control over click handling and styling.
 
-## Visual Changes
+## Problem 2: Design Mismatch
+The sidebar needs to match the reference image more closely:
+- "New portfolio" should be a nav-level text item with a "+" icon (not a blue button)
+- Floating sidebar with rounded corners and subtle blue glow from top-left corner
+- Active portfolio item has a white/cream background with dark text and rounded corners
+- Clean, minimal spacing
 
-### Sidebar Container
-- Semi-transparent dark background with backdrop blur (frosted glass effect)
-- Subtle border with slight opacity (appears as a soft glow)
-- Rounded corners on the sidebar panel
-- Remove the hard `border-r` in favor of the glass border effect
+## Files to Modify
 
-### CSS Variables Update
-- Update `--sidebar-background` to use a semi-transparent value
-- Add a custom glassmorphism utility class in `index.css`
+### `src/components/AppSidebar.tsx`
+- Replace `SidebarMenuButton` for portfolio items with plain clickable `div` elements to fix navigation
+- Change "New portfolio" from a blue button to a plain nav-level item (just text with "+" icon, like "Search assets")
+- Style active portfolio item: white/cream background, dark text, rounded-lg
+- Inactive items: transparent with subtle hover
 
-### Active Portfolio Item
-- White/light background with dark text (matching the reference where "new portfolio name" has a white pill)
-- Rounded corners on the active item
+### `src/index.css`
+- Update `.glass-sidebar` to add a subtle blue radial gradient glow from the top-left corner
+- Use a pseudo-element or background gradient overlay for the glow effect:
+  - `background: radial-gradient(ellipse at top left, rgba(0, 200, 255, 0.06) 0%, transparent 50%), var(--sidebar-glass-bg)`
 
-## Technical Details
+### `src/components/ui/sidebar.tsx`
+- Ensure the floating sidebar variant applies proper margin/padding so it looks truly "floating" with space around it
 
-### Files Modified
+## Detailed Changes
 
-**`src/index.css`**
-- Update `--sidebar-background` CSS variable to a semi-transparent dark color
-- Add a `.glass-sidebar` utility class with `backdrop-filter: blur(16px)`, semi-transparent background, and subtle border
+### AppSidebar.tsx
+- "New portfolio" becomes: `<div onClick={onCreateClick} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-white/5 rounded-lg"><Plus /> New portfolio</div>`
+- Portfolio items become plain divs with direct onClick handlers instead of SidebarMenuButton
+- Active item: `bg-[#f5f5f0] text-[#1a1a1a] font-semibold rounded-lg` (cream/white pill matching reference)
+- Gain/loss text on active items uses darker green/red for contrast against white background
 
-**`src/components/AppSidebar.tsx`**
-- Apply glassmorphism classes to the `Sidebar` component
-- Update active portfolio item styling: white background with dark text (matching reference)
-- Ensure the sidebar has rounded corners and the floating glass panel appearance
-
-**`src/layouts/AppLayout.tsx`**
-- Minor adjustment: ensure the sidebar trigger icon matches the reference (the collapse icon shown top-right of the sidebar header)
-
-**`src/components/ui/sidebar.tsx`**
-- Update the inner sidebar `div` to support the glassmorphism background (the `data-sidebar="sidebar"` element needs to allow transparent/blur backgrounds instead of opaque `bg-sidebar`)
-
-### Specific Styling Values (matching reference)
-- Background: `rgba(15, 17, 21, 0.75)` (dark with ~75% opacity)
-- Backdrop blur: `blur(16px)`
-- Border: `1px solid rgba(255, 255, 255, 0.08)` (subtle white glow)
-- Border radius: `1rem` on the sidebar panel
-- Active item: white background, dark text, rounded-lg
-- Overall effect: sidebar appears as a floating frosted glass card
+### index.css - glass-sidebar update
+- Add blue glow gradient: `radial-gradient(ellipse at 0% 0%, rgba(0, 200, 255, 0.07) 0%, transparent 60%)`
+- Keep existing blur and border properties
