@@ -29,7 +29,7 @@ const AppSidebar = ({ portfolios, getMetrics, onCreateClick }: AppSidebarProps) 
   const { id: activeId } = useParams<{ id: string }>();
 
   return (
-    <Sidebar collapsible="offcanvas" className="border-r border-border">
+    <Sidebar collapsible="offcanvas" className="border-r-0">
       <SidebarHeader className="p-4">
         {/* Brand */}
         <div className="flex items-center gap-3 mb-4">
@@ -78,13 +78,17 @@ const AppSidebar = ({ portfolios, getMetrics, onCreateClick }: AppSidebarProps) 
                       onClick={() => navigate(`/portfolio/${portfolio.id}`)}
                       className={cn(
                         "flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors cursor-pointer",
-                        isActive && "bg-secondary border border-border/80"
+                        isActive
+                          ? "!bg-foreground !text-background font-semibold"
+                          : "hover:bg-white/5"
                       )}
                     >
                       <span className="truncate text-sm font-medium">{portfolio.name}</span>
                       <span className={cn(
                         "text-xs font-medium flex items-center gap-0.5 shrink-0 ml-2",
-                        isPositive ? "text-success" : "text-destructive"
+                        isActive
+                          ? (isPositive ? "text-emerald-700" : "text-red-700")
+                          : (isPositive ? "text-success" : "text-destructive")
                       )}>
                         {isPositive
                           ? <TrendingUp className="w-3 h-3" />

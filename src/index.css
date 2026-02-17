@@ -51,6 +51,9 @@
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 220 10% 15%;
     --sidebar-ring: 190 100% 50%;
+
+    --sidebar-glass-bg: rgba(15, 17, 21, 0.75);
+    --sidebar-glass-border: rgba(255, 255, 255, 0.08);
   }
 }
 
@@ -85,6 +88,14 @@
 
   .hover-lift {
     @apply transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/10;
+  }
+
+  .glass-sidebar {
+    background: var(--sidebar-glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--sidebar-glass-border);
+    border-radius: 1rem;
   }
 
   .pulse-glow {
