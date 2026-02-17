@@ -1,11 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Trash2, ArrowRightLeft, Clock } from 'lucide-react';
-import Header from '@/components/Header';
-import Disclaimer from '@/components/Disclaimer';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Trash2, ArrowRightLeft, Clock } from 'lucide-react';
 import { PerformanceHeader, PerformanceDetails } from '@/components/PerformanceSummary';
 import HoldingsTable from '@/components/HoldingsTable';
-import AllocationChart from '@/components/AllocationChart';
 import TradeModal from '@/components/TradeModal';
 import AssetDetailModal from '@/components/AssetDetailModal';
 import DividendBreakdown from '@/components/DividendBreakdown';
@@ -148,17 +145,14 @@ const PortfolioDetail = () => {
 
   if (isLoading || portfoliosLoading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header showCreate={false} />
-        <main className="container mx-auto px-4 py-8">
-          <div className="animate-pulse space-y-6">
-            <div className="h-8 bg-muted rounded w-1/4" />
-            <div className="h-[200px] bg-muted rounded-xl" />
-            <div className="grid grid-cols-5 gap-3">
-              {[1, 2, 3, 4, 5].map(i => (<div key={i} className="h-24 bg-muted rounded-xl" />))}
-            </div>
+      <div className="container mx-auto px-4 py-8">
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 bg-muted rounded w-1/4" />
+          <div className="h-[200px] bg-muted rounded-xl" />
+          <div className="grid grid-cols-5 gap-3">
+            {[1, 2, 3, 4, 5].map(i => (<div key={i} className="h-24 bg-muted rounded-xl" />))}
           </div>
-        </main>
+        </div>
       </div>
     );
   }
@@ -168,16 +162,11 @@ const PortfolioDetail = () => {
   const recentTransactions = portfolio.transactions.slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header showCreate={false} />
-      
-      <main className="container mx-auto px-4 py-8">
+    <div className="bg-background">
+      <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
-            <Link to="/" className="p-2 rounded-lg hover:bg-secondary transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold">{portfolio.name}</h1>
               <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -221,18 +210,9 @@ const PortfolioDetail = () => {
           />
         </div>
 
-        {/* Portfolio position & Allocation */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 items-stretch">
-          <div className="lg:col-span-2 flex">
-            <div className="flex-1">
-              <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
-            </div>
-          </div>
-          <div className="flex">
-            <div className="flex-1">
-              <AllocationChart holdings={portfolio.holdings} />
-            </div>
-          </div>
+        {/* Portfolio position */}
+        <div className="mb-6">
+          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
         </div>
 
         {/* Holdings */}
@@ -271,7 +251,7 @@ const PortfolioDetail = () => {
             </div>
           </div>
         )}
-      </main>
+      </div>
 
       <AssetDetailModal isOpen={!!selectedHolding} onClose={() => setSelectedHolding(null)} holding={selectedHolding} onTrade={(symbol) => { setSelectedHolding(null); handleTrade(symbol); }} />
       <DividendBreakdown isOpen={showDividendBreakdown} onClose={() => setShowDividendBreakdown(false)} portfolio={portfolio} />
@@ -288,10 +268,8 @@ const PortfolioDetail = () => {
               <button onClick={handleDelete} className="flex-1 py-2 rounded-xl bg-destructive text-destructive-foreground font-medium hover:bg-destructive/90 transition-colors">Delete</button>
             </div>
           </div>
-        </div>
+      </div>
       )}
-
-      <Disclaimer />
     </div>
   );
 };
