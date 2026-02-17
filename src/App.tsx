@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import Index from "./pages/Index";
+import AppLayout from "@/layouts/AppLayout";
 import PortfolioDetail from "./pages/PortfolioDetail";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -44,18 +44,24 @@ const App = () => (
               path="/"
               element={
                 <ProtectedRoute>
-                  <Index />
+                  <AppLayout />
                 </ProtectedRoute>
               }
-            />
+            >
+              {/* Redirect bare / to /portfolio (AppLayout handles picking first) */}
+              <Route index element={<Navigate to="/portfolio" replace />} />
+            </Route>
             <Route
-              path="/portfolio/:id"
+              path="/portfolio"
               element={
                 <ProtectedRoute>
-                  <PortfolioDetail />
+                  <AppLayout />
                 </ProtectedRoute>
               }
-            />
+            >
+              <Route index element={null} />
+              <Route path=":id" element={<PortfolioDetail />} />
+            </Route>
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
