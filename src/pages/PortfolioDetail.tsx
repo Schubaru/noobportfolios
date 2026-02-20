@@ -217,7 +217,7 @@ const PortfolioDetail = () => {
 
         {/* Portfolio position */}
         <div className="mb-6">
-          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} />
+          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} todayBaseline={getTodayBaseline(portfolio.id)} />
         </div>
 
         {/* Holdings */}
