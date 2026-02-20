@@ -4,6 +4,7 @@ import { Loader2, Sparkles, Briefcase } from 'lucide-react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import AppSidebar from '@/components/AppSidebar';
 import CreatePortfolioModal from '@/components/CreatePortfolioModal';
+import TradeModal from '@/components/TradeModal';
 import Disclaimer from '@/components/Disclaimer';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { usePortfolioQuotes } from '@/hooks/usePortfolioQuotes';
@@ -19,11 +20,15 @@ const AppLayout = () => {
     isLoading,
     isInitializing,
     createPortfolio: createNewPortfolio,
+    fetchPortfolios,
   } = usePortfolios();
   const { getMetrics: getLiveMetrics } = usePortfolioQuotes(portfolios);
   const { getTodayBaseline, refetchBaselines } = usePortfolioTodaySummary(portfolios.map(p => p.id));
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isSearchTradeOpen, setIsSearchTradeOpen] = useState(false);
   const [hasRedirected, setHasRedirected] = useState(false);
+
+  const activePortfolio = portfolios.find(p => p.id === id);
 
   // Redirect to first portfolio if on bare /portfolio route or no id
   useEffect(() => {
@@ -104,13 +109,20 @@ const AppLayout = () => {
           getMetrics={getMetrics}
           getTodayBaseline={getTodayBaseline}
           onCreateClick={() => setIsCreateModalOpen(true)}
+          onSearchClick={() => {
+            if (activePortfolio) {
+              setIsSearchTradeOpen(true);
+            } else {
+              toast.error('Open a portfolio to search and trade.');
+            }
+          }}
         />
         <main className="flex-1 overflow-auto">
           {/* Mobile trigger */}
           <div className="md:hidden sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border p-2">
             <SidebarTrigger />
           </div>
-          <Outlet context={{ refetchBaselines }} />
+          <Outlet context={{ refetchBaselines, fetchPortfolios }} />
         </main>
       </div>
 
@@ -119,6 +131,21 @@ const AppLayout = () => {
         onClose={() => setIsCreateModalOpen(false)}
         onCreated={handlePortfolioCreated}
       />
+
+      {activePortfolio && (
+        <TradeModal
+          isOpen={isSearchTradeOpen}
+          onClose={() => setIsSearchTradeOpen(false)}
+          portfolio={activePortfolio}
+          initialStep="search"
+          onTradeComplete={async () => {
+            await fetchPortfolios();
+            refetchBaselines();
+            setIsSearchTradeOpen(false);
+          }}
+        />
+      )}
+
       <Disclaimer />
     </SidebarProvider>
   );
