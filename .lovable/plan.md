@@ -1,187 +1,104 @@
 
 
-# Fix Sidebar Navigation + Show Today Performance
+# Fix Inflated Timeframe Deltas via Seed Prices
 
-## Overview
-Three changes: key-based remount for portfolio switching, new lightweight hook for today baselines, and sidebar badge update. Includes the two additions: scoped baseline query and explicit refetchBaselines after trades.
+## Problem
+Early data points in the chart have `holdingsValue = 0` because the forward-fill loop starts with `lastPrice = null`. Until bars arrive for a symbol, equity = cash only, creating a false performance jump when prices finally appear.
 
-## File 1: `src/App.tsx`
-- Import `useParams` from react-router-dom
-- Add `PortfolioDetailKeyed` wrapper component that reads `useParams` and renders `<PortfolioDetail key={id} />`
-- Change route line 63 from `<Route path=":id" element={<PortfolioDetail />} />` to `<Route path=":id" element={<PortfolioDetailKeyed />} />`
+## Solution
+Fetch "seed prices" (most recent prior close per symbol from `symbol_daily_prices`) before range start, and initialize the forward-fill with those values. This ensures holdings are valued from the first timestamp.
 
-## File 2: `src/hooks/usePortfolioTodaySummary.ts` (NEW)
-Lightweight hook that fetches latest `day_reference_value` per portfolio from `value_history`:
-- Query scoped to last 3 days: `.gte('recorded_at', threeDaysAgo.toISOString())`
-- Limited to `portfolioIds.length * 10` rows via `.limit()`
-- Ordered by `portfolio_id, recorded_at DESC`
-- Dedupes in JS (first row per portfolio_id = most recent)
-- Exposes `getTodayBaseline(id) => number | null` and `refetchBaselines()`
+## Changes (single file)
 
-## File 3: `src/layouts/AppLayout.tsx`
-- Import and call `usePortfolioTodaySummary(portfolios.map(p => p.id))`
-- Pass `getTodayBaseline` to `AppSidebar`
-- Pass `refetchBaselines` down to `PortfolioDetail` via React Router `Outlet` context (or a simpler approach: make `AppLayout` accept a trade-complete callback that also calls `refetchBaselines`)
+**File: `supabase/functions/portfolio-performance/index.ts`**
 
-Since `Outlet` doesn't easily pass props, the cleanest approach: create a React context or use `Outlet context`. Use `<Outlet context={{ refetchBaselines }} />` and consume it in `PortfolioDetail` via `useOutletContext`.
-
-## File 4: `src/pages/PortfolioDetail.tsx`
-- Import `useOutletContext` from react-router-dom
-- In `handleTradeComplete`, after existing refresh logic, call `refetchBaselines()` from outlet context
-
-## File 5: `src/components/AppSidebar.tsx`
-- Add `getTodayBaseline` prop to interface
-- For each portfolio row: compute `equityNow = metrics?.totalValue`, `baseline = getTodayBaseline(portfolio.id)`, `todayDelta = equityNow - baseline` if both available
-- Show green/red todayDelta or neutral dash when baseline unavailable
-
----
-
-## Technical Details
-
-### App.tsx changes (lines 5, 33-63)
-
-Add `useParams` to import. Add wrapper before `App`:
+### 1. Add `toEasternDate()` helper
+Converts a UTC ms timestamp to US/Eastern `YYYY-MM-DD` string. Used to compute `startDate` for the seed query so `date < startDate` selects the correct prior close regardless of weekends/holidays.
 
 ```typescript
-const PortfolioDetailKeyed = () => {
-  const { id } = useParams<{ id: string }>();
-  return <PortfolioDetail key={id} />;
-};
-```
-
-Route line 63 becomes:
-```typescript
-<Route path=":id" element={<PortfolioDetailKeyed />} />
-```
-
-### usePortfolioTodaySummary.ts (new file)
-
-```typescript
-import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-
-export const usePortfolioTodaySummary = (portfolioIds: string[]) => {
-  const [baselines, setBaselines] = useState<Map<string, number>>(new Map());
-
-  const fetchBaselines = useCallback(async () => {
-    if (portfolioIds.length === 0) return;
-
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-    const { data, error } = await supabase
-      .from('value_history')
-      .select('portfolio_id, day_reference_value, recorded_at')
-      .in('portfolio_id', portfolioIds)
-      .not('day_reference_value', 'is', null)
-      .gte('recorded_at', threeDaysAgo.toISOString())
-      .order('portfolio_id')
-      .order('recorded_at', { ascending: false })
-      .limit(portfolioIds.length * 10);
-
-    if (error || !data) return;
-
-    const map = new Map<string, number>();
-    const seen = new Set<string>();
-    for (const row of data) {
-      if (!seen.has(row.portfolio_id)) {
-        seen.add(row.portfolio_id);
-        map.set(row.portfolio_id, Number(row.day_reference_value));
-      }
-    }
-    setBaselines(map);
-  }, [portfolioIds.join(',')]);
-
-  useEffect(() => { fetchBaselines(); }, [fetchBaselines]);
-
-  const getTodayBaseline = useCallback(
-    (portfolioId: string): number | null => baselines.get(portfolioId) ?? null,
-    [baselines]
-  );
-
-  return { getTodayBaseline, refetchBaselines: fetchBaselines };
-};
-```
-
-### AppLayout.tsx changes
-
-Add import, call hook, pass to sidebar and outlet context:
-
-```typescript
-import { usePortfolioTodaySummary } from '@/hooks/usePortfolioTodaySummary';
-// ... in component body:
-const { getTodayBaseline, refetchBaselines } = usePortfolioTodaySummary(portfolios.map(p => p.id));
-
-// Sidebar gets getTodayBaseline prop
-<AppSidebar
-  portfolios={portfolios}
-  getMetrics={getMetrics}
-  getTodayBaseline={getTodayBaseline}
-  onCreateClick={() => setIsCreateModalOpen(true)}
-/>
-
-// Outlet passes refetchBaselines
-<Outlet context={{ refetchBaselines }} />
-```
-
-Import `Outlet` is already used (from react-router-dom).
-
-### PortfolioDetail.tsx changes
-
-```typescript
-import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
-
-// In component:
-const { refetchBaselines } = useOutletContext<{ refetchBaselines: () => Promise<void> }>();
-
-// In handleTradeComplete, add after existing lines:
-const handleTradeComplete = async () => {
-  const freshPortfolios = await fetchPortfolios();
-  const freshPortfolio = freshPortfolios.find(p => p.id === id);
-  await loadPortfolioData(true, freshPortfolio);
-  setRefreshKey(k => k + 1);
-  refetchBaselines(); // Update sidebar today badges
-};
-```
-
-### AppSidebar.tsx changes
-
-Update interface and badge logic:
-
-```typescript
-interface AppSidebarProps {
-  portfolios: Portfolio[];
-  getMetrics: (portfolioId: string) => PortfolioMetrics | undefined;
-  getTodayBaseline: (portfolioId: string) => number | null;
-  onCreateClick: () => void;
+function toEasternDate(ms: number): string {
+  return new Date(ms).toLocaleString('en-CA', { timeZone: 'America/New_York' }).split(',')[0];
 }
-
-// In each portfolio row:
-const metrics = getMetrics(portfolio.id);
-const equityNow = metrics?.totalValue ?? null;
-const baseline = getTodayBaseline(portfolio.id);
-const hasTodayData = equityNow !== null && baseline !== null && baseline > 0;
-const todayDelta = hasTodayData ? equityNow! - baseline! : null;
-const isPositive = todayDelta !== null ? todayDelta >= 0 : true;
-
-// Badge shows todayDelta or neutral dash
-{hasTodayData && todayDelta !== null ? (
-  <span className={cn(...)}>
-    {isPositive ? <TrendingUp /> : <TrendingDown />}
-    {isPositive ? '+' : ''}{formatCurrency(todayDelta)}
-  </span>
-) : (
-  <span className="text-xs text-muted-foreground shrink-0 ml-2">—</span>
-)}
 ```
 
-## Files Summary
+### 2. Add `fetchSeedPrices()` function
+Queries `symbol_daily_prices` for the most recent `close_price` per symbol where `date < startDate` (Eastern). Limited to `symbols.length * 5` rows, deduped in JS (first row per symbol = most recent).
 
-| File | Change |
-|------|--------|
-| `src/App.tsx` | Add `PortfolioDetailKeyed` with `key={id}` |
-| `src/hooks/usePortfolioTodaySummary.ts` | New hook: scoped baseline query (last 3 days, limited rows) |
-| `src/layouts/AppLayout.tsx` | Wire hook, pass to sidebar + outlet context |
-| `src/pages/PortfolioDetail.tsx` | Call `refetchBaselines()` after trade |
-| `src/components/AppSidebar.tsx` | Badge shows equity-based todayDelta |
+```typescript
+async function fetchSeedPrices(
+  serviceClient, symbols, rangeStartMs
+): Promise<Map<string, number>> {
+  const startDate = toEasternDate(rangeStartMs);
+  const { data } = await serviceClient
+    .from('symbol_daily_prices')
+    .select('symbol, close_price, date')
+    .in('symbol', symbols)
+    .lt('date', startDate)
+    .order('date', { ascending: false })
+    .limit(symbols.length * 5);
+  // Dedupe: first row per symbol = most recent
+  ...
+}
+```
+
+### 3. Create service client in handler
+Add a service-role client (alongside existing user client) to read `symbol_daily_prices`:
+
+```typescript
+const serviceClient = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+```
+
+### 4. Call `fetchSeedPrices()` after determining `allSymbols` and `start`
+
+```typescript
+const seedPrices = await fetchSeedPrices(serviceClient, allSymbols, start);
+```
+
+### 5. Initialize forward-fill with seed price (line 298)
+
+```text
+Before:  let lastPrice: number | null = null;
+After:   let lastPrice: number | null = seedPrices.get(sym) ?? null;
+```
+
+### 6. Track unpriced symbols correctly
+A symbol is "unpriced" only when it has no seed AND no bars (not warned when seed exists):
+
+```typescript
+const unpricedSymbols: string[] = [];
+for (const sym of allSymbols) {
+  const bars = barsBySymbol.get(sym) || [];
+  if (!seedPrices.has(sym) && bars.length === 0) {
+    unpricedSymbols.push(sym);
+  }
+}
+```
+
+Include `unpricedSymbols` in the JSON response (only when non-empty).
+
+### 7. Filter `shares > 0` in `getActiveHoldings`
+Add `&& Number(h.shares) > 0` to the condition so zero-share rows don't contribute to hv or cb.
+
+### 8. Fix live point fallback chain
+After checking live quotes and last bar, also fall back to seed price:
+
+```typescript
+} else {
+  const seed = seedPrices.get(h.symbol);
+  if (seed) liveHV += h.shares * seed;
+}
+```
+
+## What stays the same
+- All other edge functions (unchanged)
+- Frontend chart components (unchanged -- they already read `v` = equity)
+- Range config, canonical timestamp logic, cash history logic
+- Alpaca bar fetching logic
+- Response caching logic
+
+## Acceptance
+- After a BUY, equity line stays flat (cash down, holdings up by same amount at seed price)
+- 1W/1M deltas reflect actual price movement, not holdings appearing from zero
+- Switching timeframes produces consistent deltas
+- `unpricedSymbols` array in response lets frontend show a warning for truly unpriced symbols
 
