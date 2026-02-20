@@ -21,10 +21,11 @@ import { cn } from '@/lib/utils';
 interface AppSidebarProps {
   portfolios: Portfolio[];
   getMetrics: (portfolioId: string) => PortfolioMetrics | undefined;
+  getTodayBaseline: (portfolioId: string) => number | null;
   onCreateClick: () => void;
 }
 
-const AppSidebar = ({ portfolios, getMetrics, onCreateClick }: AppSidebarProps) => {
+const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick }: AppSidebarProps) => {
   const navigate = useNavigate();
   const { id: activeId } = useParams<{ id: string }>();
 
@@ -67,9 +68,12 @@ const AppSidebar = ({ portfolios, getMetrics, onCreateClick }: AppSidebarProps) 
             <SidebarMenu>
               {portfolios.map((portfolio) => {
                 const metrics = getMetrics(portfolio.id);
-                const unrealizedPL = metrics?.unrealizedPL ?? 0;
+                const equityNow = metrics?.totalValue ?? null;
+                const baseline = getTodayBaseline(portfolio.id);
+                const hasTodayData = equityNow !== null && baseline !== null && baseline > 0;
+                const todayDelta = hasTodayData ? equityNow! - baseline! : null;
                 const isActive = activeId === portfolio.id;
-                const isPositive = unrealizedPL >= 0;
+                const isPositive = todayDelta !== null ? todayDelta >= 0 : true;
 
                 return (
                   <SidebarMenuItem key={portfolio.id}>
@@ -78,23 +82,25 @@ const AppSidebar = ({ portfolios, getMetrics, onCreateClick }: AppSidebarProps) 
                       className={cn(
                         "flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors cursor-pointer",
                         isActive
-                          ? "bg-[#f5f5f0] text-[#1a1a1a] font-semibold"
+                          ? "bg-secondary text-secondary-foreground font-semibold"
                           : "hover:bg-white/5"
                       )}
                     >
                       <span className="truncate text-sm font-medium">{portfolio.name}</span>
-                      <span className={cn(
-                        "text-xs font-medium flex items-center gap-0.5 shrink-0 ml-2",
-                        isActive
-                          ? (isPositive ? "text-emerald-700" : "text-red-700")
-                          : (isPositive ? "text-success" : "text-destructive")
-                      )}>
-                        {isPositive
-                          ? <TrendingUp className="w-3 h-3" />
-                          : <TrendingDown className="w-3 h-3" />
-                        }
-                        {isPositive ? '+' : ''}{formatCurrency(unrealizedPL)}
-                      </span>
+                      {hasTodayData && todayDelta !== null ? (
+                        <span className={cn(
+                          "text-xs font-medium flex items-center gap-0.5 shrink-0 ml-2",
+                          isPositive ? "text-success" : "text-destructive"
+                        )}>
+                          {isPositive
+                            ? <TrendingUp className="w-3 h-3" />
+                            : <TrendingDown className="w-3 h-3" />
+                          }
+                          {isPositive ? '+' : ''}{formatCurrency(todayDelta)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground shrink-0 ml-2">—</span>
+                      )}
                     </div>
                   </SidebarMenuItem>
                 );

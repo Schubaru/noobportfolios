@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { Trash2, ArrowRightLeft, Clock } from 'lucide-react';
 import { PerformanceHeader, PerformanceDetails } from '@/components/PerformanceSummary';
 import HoldingsTable from '@/components/HoldingsTable';
@@ -17,6 +17,7 @@ const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getPortfolio, deletePortfolio, fetchPortfolios, isLoading: portfoliosLoading } = usePortfolios();
+  const { refetchBaselines } = useOutletContext<{ refetchBaselines: () => Promise<void> }>();
   
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [metrics, setMetrics] = useState<PortfolioMetrics | null>(null);
@@ -139,8 +140,8 @@ const PortfolioDetail = () => {
     const freshPortfolios = await fetchPortfolios();
     const freshPortfolio = freshPortfolios.find(p => p.id === id);
     await loadPortfolioData(true, freshPortfolio);
-    // Trigger chart refresh
     setRefreshKey(k => k + 1);
+    refetchBaselines(); // Update sidebar today badges
   };
 
   if (isLoading || portfoliosLoading) {

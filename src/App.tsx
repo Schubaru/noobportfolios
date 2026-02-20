@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import AppLayout from "@/layouts/AppLayout";
 import PortfolioDetail from "./pages/PortfolioDetail";
@@ -29,6 +29,12 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
 
   return <>{children}</>;
+};
+
+// Key-based wrapper to force remount on portfolio switch
+const PortfolioDetailKeyed = () => {
+  const { id } = useParams<{ id: string }>();
+  return <PortfolioDetail key={id} />;
 };
 
 const App = () => (
@@ -60,7 +66,7 @@ const App = () => (
               }
             >
               <Route index element={null} />
-              <Route path=":id" element={<PortfolioDetail />} />
+              <Route path=":id" element={<PortfolioDetailKeyed />} />
             </Route>
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
