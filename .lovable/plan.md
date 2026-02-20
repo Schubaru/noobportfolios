@@ -1,71 +1,81 @@
 
 
-# Unify Today Card with day_reference_value Baseline
+# Fallback Baseline When day_reference_value Is Missing
 
-## Overview
+## Problem
 
-Replace the quote-based `metrics.dailyPL` logic in the Today card with the same `day_reference_value` baseline used by the 1D hero pill, guaranteeing an exact match.
+Portfolios without a snapshot yet have no `day_reference_value` in `value_history`, so `getTodayBaseline` returns `null`. This causes the Today card, 1D hero pill, and sidebar badge to all show "---" even during market hours.
+
+## Solution
+
+Create a single enhanced baseline function in `AppLayout` that:
+1. Prefers `day_reference_value` from the database (existing behavior)
+2. Falls back to `cash + sum(shares * previousClose)` from live quotes when the DB value is missing
+
+This enhanced function replaces `getTodayBaseline` everywhere it's passed, so all three consumers (sidebar, hero pill, Today card) automatically get the fallback.
 
 ## Changes
 
-### 1. PerformanceSummary.tsx
+### 1. AppLayout.tsx -- create enhanced baseline with fallback
 
-**Add `todayBaseline` prop** to `PerformanceSummaryProps`:
+- Destructure `getPortfolioWithQuotes` from `usePortfolioQuotes` (currently only `getMetrics` is used)
+- Create `getEffectiveTodayBaseline` callback that:
+  - Returns DB baseline if available (via existing `getTodayBaseline`)
+  - Otherwise computes `cash + sum(shares * previousClose)` from the quoted portfolio
+  - Returns `null` only if neither source is available
+
 ```typescript
-interface PerformanceSummaryProps {
-  metrics: PortfolioMetrics;
-  cash: number;
-  startingCash: number;
-  todayBaseline?: number | null;
-}
+const getEffectiveTodayBaseline = useCallback((portfolioId: string): number | null => {
+  const dbBaseline = getTodayBaseline(portfolioId);
+  if (typeof dbBaseline === 'number' && Number.isFinite(dbBaseline) && dbBaseline > 0) {
+    return dbBaseline;
+  }
+
+  // Fallback: cash + sum(shares * previousClose) from live quotes
+  const pwq = getPortfolioWithQuotes(portfolioId);
+  const source = pwq?.portfolio ?? portfolios.find(p => p.id === portfolioId);
+  if (!source || source.holdings.length === 0) return null;
+
+  let allHavePrevClose = true;
+  const prevCloseTotal = source.holdings.reduce((sum, h) => {
+    if (typeof h.previousClose === 'number' && h.previousClose > 0) {
+      return sum + h.shares * h.previousClose;
+    }
+    allHavePrevClose = false;
+    return sum;
+  }, 0);
+
+  if (!allHavePrevClose) return null;
+  const fallback = source.cash + prevCloseTotal;
+  return fallback > 0 ? fallback : null;
+}, [getTodayBaseline, getPortfolioWithQuotes, portfolios]);
 ```
 
-**Replace daily PL variables** in `PerformanceDetails` (lines 90-96):
-```typescript
-export const PerformanceDetails = ({
-  metrics, cash, startingCash, todayBaseline
-}: PerformanceSummaryProps) => {
-  const hasTodayBaseline = typeof todayBaseline === 'number'
-    && Number.isFinite(todayBaseline) && todayBaseline > 0;
-  const todayDelta = hasTodayBaseline ? metrics.totalValue - todayBaseline : null;
-  const todayPct = hasTodayBaseline && todayBaseline! > 0
-    ? (todayDelta! / todayBaseline!) * 100 : null;
-  const hasTodayData = todayDelta !== null;
-  const isTodayPositive = todayDelta !== null && todayDelta >= 0;
-```
+- Pass `getEffectiveTodayBaseline` instead of `getTodayBaseline` to:
+  - `AppSidebar` (prop)
+  - `Outlet` context
 
-**Update the Today card** (lines 136-153) to use `todayDelta`, `todayPct`, `hasTodayData`, `isTodayPositive` instead of `metrics.dailyPL`, `metrics.dailyPLPercent`, `hasDailyData`, `isPositiveDaily`.
+### 2. No other files change
 
-### 2. PortfolioDetail.tsx
-
-Pass the baseline to PerformanceDetails (line 220):
-```tsx
-<PerformanceDetails
-  metrics={metrics}
-  cash={portfolio.cash}
-  startingCash={portfolio.startingCash}
-  todayBaseline={getTodayBaseline(portfolio.id)}
-/>
-```
-
-`getTodayBaseline` is already available from the outlet context.
+- `AppSidebar`, `PerformanceSummary`, `PortfolioGrowthChart`, and `PortfolioDetail` all already consume `getTodayBaseline` -- they receive the enhanced version automatically through props/context.
 
 ## What stays the same
 
-- Hero pill 1D logic (already unified)
-- Sidebar badges (already use day_reference_value)
-- 1W / 1M / ALL ranges
-- Chart hover scrubbing
-- Old `calculateDailyPL` and `PortfolioMetrics` daily fields remain in code for now (cleanup deferred per request)
+- DB baseline is always preferred when available
+- All three consumers (sidebar badge, hero pill, Today card) use the same function, guaranteeing they match
+- 1W / 1M / ALL ranges unaffected
+- Chart hover scrubbing unaffected
+- `refetchBaselines` still works (refetches DB baselines; fallback is always recomputed from live quotes)
 
-## Result
+## Edge cases
 
-Hero pill (1D) and Today card both compute: `equity(now) - day_reference_value`. Exact match guaranteed.
+- If `previousClose` is missing for any holding (quotes not yet loaded), fallback returns `null` and UI shows "---" (safe)
+- Once quotes load, the fallback becomes available and UI updates
+- Once a snapshot is taken, the DB baseline takes over permanently
 
 ## Files modified
 
 | File | Change |
 |------|--------|
-| `src/components/PerformanceSummary.tsx` | Add `todayBaseline` prop, derive today delta from it instead of `metrics.dailyPL` |
-| `src/pages/PortfolioDetail.tsx` | Pass `getTodayBaseline(portfolio.id)` to `PerformanceDetails` |
+| `src/layouts/AppLayout.tsx` | Destructure `getPortfolioWithQuotes`, create `getEffectiveTodayBaseline`, pass it instead of `getTodayBaseline` |
 
