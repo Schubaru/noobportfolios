@@ -42,20 +42,20 @@ const AppSidebar = ({ portfolios, getMetrics, onCreateClick }: AppSidebarProps) 
           </div>
         </div>
 
-        {/* New portfolio button */}
-        <button
+        {/* New portfolio */}
+        <div
           onClick={onCreateClick}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-muted-foreground text-sm cursor-pointer hover:bg-white/5 transition-colors"
         >
           <Plus className="w-4 h-4" />
           New portfolio
-        </button>
+        </div>
 
         {/* Search placeholder */}
-        <button className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-secondary/50 text-muted-foreground text-sm mt-2 hover:bg-secondary transition-colors">
+        <div className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-muted-foreground text-sm cursor-pointer hover:bg-white/5 transition-colors">
           <Search className="w-4 h-4" />
           Search assets
-        </button>
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
@@ -73,13 +73,12 @@ const AppSidebar = ({ portfolios, getMetrics, onCreateClick }: AppSidebarProps) 
 
                 return (
                   <SidebarMenuItem key={portfolio.id}>
-                    <SidebarMenuButton
-                      isActive={isActive}
+                    <div
                       onClick={() => navigate(`/portfolio/${portfolio.id}`)}
                       className={cn(
                         "flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors cursor-pointer",
                         isActive
-                          ? "!bg-foreground !text-background font-semibold"
+                          ? "bg-[#f5f5f0] text-[#1a1a1a] font-semibold"
                           : "hover:bg-white/5"
                       )}
                     >
@@ -96,7 +95,7 @@ const AppSidebar = ({ portfolios, getMetrics, onCreateClick }: AppSidebarProps) 
                         }
                         {isPositive ? '+' : ''}{formatCurrency(unrealizedPL)}
                       </span>
-                    </SidebarMenuButton>
+                    </div>
                   </SidebarMenuItem>
                 );
               })}
