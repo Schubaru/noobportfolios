@@ -193,9 +193,8 @@ const Sidebar = React.forwardRef<
       <div
         className={cn(
           "fixed z-10 hidden w-[--sidebar-width] transition-[left,right,width] duration-200 ease-linear md:flex",
-          // Responsive floating: 16px on md, 20px on lg+
-          "md:top-4 md:left-4 md:bottom-4 md:h-[calc(100svh-32px)]",
-          "lg:top-5 lg:left-5 lg:bottom-5 lg:h-[calc(100svh-40px)]",
+          // Responsive floating: 10px on md+
+          "md:top-2.5 md:left-2.5 md:bottom-2.5 md:h-[calc(100svh-20px)]",
           side === "left"
             ? "group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
