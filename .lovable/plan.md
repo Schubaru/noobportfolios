@@ -1,104 +1,187 @@
 
 
-# Switch to Equity as Single Source of Truth
+# Fix Sidebar Navigation + Show Today Performance
 
 ## Overview
-Rewire the chart, hero number, and gain/loss pill to use **equity** (holdings + cash) instead of the current unrealized P/L delta logic. The backend already returns `v = hv + cash` on every point -- no backend changes needed.
+Three changes: key-based remount for portfolio switching, new lightweight hook for today baselines, and sidebar badge update. Includes the two additions: scoped baseline query and explicit refetchBaselines after trades.
 
-All three tweaks from the approval are incorporated below.
+## File 1: `src/App.tsx`
+- Import `useParams` from react-router-dom
+- Add `PortfolioDetailKeyed` wrapper component that reads `useParams` and renders `<PortfolioDetail key={id} />`
+- Change route line 63 from `<Route path=":id" element={<PortfolioDetail />} />` to `<Route path=":id" element={<PortfolioDetailKeyed />} />`
 
----
+## File 2: `src/hooks/usePortfolioTodaySummary.ts` (NEW)
+Lightweight hook that fetches latest `day_reference_value` per portfolio from `value_history`:
+- Query scoped to last 3 days: `.gte('recorded_at', threeDaysAgo.toISOString())`
+- Limited to `portfolioIds.length * 10` rows via `.limit()`
+- Ordered by `portfolio_id, recorded_at DESC`
+- Dedupes in JS (first row per portfolio_id = most recent)
+- Exposes `getTodayBaseline(id) => number | null` and `refetchBaselines()`
 
-## File 1: `src/components/PortfolioGrowthChart.tsx`
+## File 3: `src/layouts/AppLayout.tsx`
+- Import and call `usePortfolioTodaySummary(portfolios.map(p => p.id))`
+- Pass `getTodayBaseline` to `AppSidebar`
+- Pass `refetchBaselines` down to `PortfolioDetail` via React Router `Outlet` context (or a simpler approach: make `AppLayout` accept a trade-complete callback that also calls `refetchBaselines`)
 
-### Interface changes
-- **`ChartPoint`**: Replace `unrealizedPLDelta` and `portfolioValue` with a single `equity` field.
-- **`ChartHoverState`**: Rename `portfolioValue` to `equity`. Keep `gain`, `gainPercent`, `isHovering`.
+Since `Outlet` doesn't easily pass props, the cleanest approach: create a React context or use `Outlet context`. Use `<Outlet context={{ refetchBaselines }} />` and consume it in `PortfolioDetail` via `useOutletContext`.
 
-### Chart data transformation (`chartData` useMemo)
-- Map each backend point to `{ timestamp, equity: p.v }`.
-- Remove all UPL baseline logic (`baselineUPL`, `firstWithHoldings`, cost-basis subtraction).
+## File 4: `src/pages/PortfolioDetail.tsx`
+- Import `useOutletContext` from react-router-dom
+- In `handleTradeComplete`, after existing refresh logic, call `refetchBaselines()` from outlet context
 
-### `startEquity` (new useMemo)
-- Derived from `chartData[0].equity` -- always the **earliest point returned by the API** for the selected range.
-- Since `rangeConfig` already clamps the query window to `[rangeStart, now]`, the first returned point is guaranteed to be at or after rangeStart. No additional filtering needed, but guard against empty arrays.
-
-### Range stats emitter (`onRangeStats` useEffect)
-```
-startEquity = chartData[0].equity
-lastEquity  = chartData[chartData.length - 1].equity
-gain = lastEquity - startEquity
-pct  = startEquity > 0 ? (gain / startEquity) * 100 : 0
-```
-
-### Hover handler (`handleMouseMove`)
-```
-hoveredEquity = point.equity
-gain = hoveredEquity - startEquity
-pct  = startEquity > 0 ? (gain / startEquity) * 100 : 0
-onHoverChange({ equity: hoveredEquity, gain, gainPercent: pct, isHovering: true })
-```
-Remove the special-case for `portfolioValue <= 0` (equity is always meaningful since cash exists from day one).
-
-### Y-axis domain
-Compute from `equity` values instead of UPL deltas.
-
-### Area chart
-- `dataKey` changes from `unrealizedPLDelta` to `equity`.
-- Line color: positive if `lastEquity >= startEquity`, negative otherwise.
-
-### Tooltip
-Show equity value at the hovered point and the delta from `startEquity`.
-
-### Cleanup
-Remove `baselineUPL` useMemo, `firstHoldingsIndex` useMemo, and all cost-basis references.
+## File 5: `src/components/AppSidebar.tsx`
+- Add `getTodayBaseline` prop to interface
+- For each portfolio row: compute `equityNow = metrics?.totalValue`, `baseline = getTodayBaseline(portfolio.id)`, `todayDelta = equityNow - baseline` if both available
+- Show green/red todayDelta or neutral dash when baseline unavailable
 
 ---
 
-## File 2: `src/components/PerformanceSummary.tsx`
+## Technical Details
 
-### `PerformanceHeader`
-- Rename prop `displayHoldingsValue` to `displayEquity`.
-- Default big number (`shownValue`): use `displayEquity ?? metrics.totalValue` (single-source; `metrics.totalValue` already equals `holdingsValue + cash`).
-- The `hasHoldings` guard stays (controls "no investments yet" message).
+### App.tsx changes (lines 5, 33-63)
 
-### `PerformanceDetails` (all-time cards)
-- Rename "Invested" label to **"Holdings"** and show `metrics.holdingsValue` (current market value of positions) instead of `metrics.costBasis`.
-- "Gain/Loss" card: show `metrics.totalValue - startingCash` (equity minus the fixed $10,000). This is the true all-time equity change.
-- "Cash" and "Today" cards remain unchanged.
+Add `useParams` to import. Add wrapper before `App`:
 
-### Interface updates
-- `PerformanceHeaderProps`: rename `displayHoldingsValue?: number` to `displayEquity?: number`.
+```typescript
+const PortfolioDetailKeyed = () => {
+  const { id } = useParams<{ id: string }>();
+  return <PortfolioDetail key={id} />;
+};
+```
 
----
+Route line 63 becomes:
+```typescript
+<Route path=":id" element={<PortfolioDetailKeyed />} />
+```
 
-## File 3: `src/pages/PortfolioDetail.tsx`
+### usePortfolioTodaySummary.ts (new file)
 
-### State/type updates
-- `ChartHoverState` import: uses the renamed `equity` field.
-- `displayHoldingsValue` renamed to `displayEquity`:
-  - When NOT hovering: `metrics.totalValue` (already = holdingsValue + cash, single source, recalculated immediately after trades via the existing forced-refresh flow).
-  - When hovering: `hoverState.equity`.
+```typescript
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
-### Props passed to `PerformanceHeader`
-- `displayEquity` instead of `displayHoldingsValue`.
+export const usePortfolioTodaySummary = (portfolioIds: string[]) => {
+  const [baselines, setBaselines] = useState<Map<string, number>>(new Map());
 
-### `displayGain` / `displayGainPercent`
-- No logic change needed -- these already come from `hoverState.gain` / `rangeStats.gain` which will now be equity-based thanks to the chart changes.
+  const fetchBaselines = useCallback(async () => {
+    if (portfolioIds.length === 0) return;
 
----
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
-## What does NOT change
-- Backend edge function (already returns `v = hv + cash`).
-- `PerformanceDetails` timeframe scope (stays all-time).
-- Trade flow / refresh logic.
-- Auto-refresh intervals.
+    const { data, error } = await supabase
+      .from('value_history')
+      .select('portfolio_id, day_reference_value, recorded_at')
+      .in('portfolio_id', portfolioIds)
+      .not('day_reference_value', 'is', null)
+      .gte('recorded_at', threeDaysAgo.toISOString())
+      .order('portfolio_id')
+      .order('recorded_at', { ascending: false })
+      .limit(portfolioIds.length * 10);
 
-## Summary of the three requested tweaks
+    if (error || !data) return;
 
-1. **Single-source equity**: Hero uses `metrics.totalValue` (computed once in `calculatePortfolioMetrics` as `cash + holdingsValue`). No manual addition of `portfolio.cash` anywhere. After trades, the existing forced-refresh flow recalculates `metrics` immediately.
+    const map = new Map<string, number>();
+    const seen = new Set<string>();
+    for (const row of data) {
+      if (!seen.has(row.portfolio_id)) {
+        seen.add(row.portfolio_id);
+        map.set(row.portfolio_id, Number(row.day_reference_value));
+      }
+    }
+    setBaselines(map);
+  }, [portfolioIds.join(',')]);
 
-2. **`startEquity` is earliest in-range point**: Defined as `chartData[0].equity` where `chartData` only contains points returned by the API (already range-clamped by `rangeConfig`).
+  useEffect(() => { fetchBaselines(); }, [fetchBaselines]);
 
-3. **Rename fields to `equity`**: `ChartPoint.portfolioValue` and `ChartHoverState.portfolioValue` both become `equity`. No old-name compatibility aliases.
+  const getTodayBaseline = useCallback(
+    (portfolioId: string): number | null => baselines.get(portfolioId) ?? null,
+    [baselines]
+  );
+
+  return { getTodayBaseline, refetchBaselines: fetchBaselines };
+};
+```
+
+### AppLayout.tsx changes
+
+Add import, call hook, pass to sidebar and outlet context:
+
+```typescript
+import { usePortfolioTodaySummary } from '@/hooks/usePortfolioTodaySummary';
+// ... in component body:
+const { getTodayBaseline, refetchBaselines } = usePortfolioTodaySummary(portfolios.map(p => p.id));
+
+// Sidebar gets getTodayBaseline prop
+<AppSidebar
+  portfolios={portfolios}
+  getMetrics={getMetrics}
+  getTodayBaseline={getTodayBaseline}
+  onCreateClick={() => setIsCreateModalOpen(true)}
+/>
+
+// Outlet passes refetchBaselines
+<Outlet context={{ refetchBaselines }} />
+```
+
+Import `Outlet` is already used (from react-router-dom).
+
+### PortfolioDetail.tsx changes
+
+```typescript
+import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
+
+// In component:
+const { refetchBaselines } = useOutletContext<{ refetchBaselines: () => Promise<void> }>();
+
+// In handleTradeComplete, add after existing lines:
+const handleTradeComplete = async () => {
+  const freshPortfolios = await fetchPortfolios();
+  const freshPortfolio = freshPortfolios.find(p => p.id === id);
+  await loadPortfolioData(true, freshPortfolio);
+  setRefreshKey(k => k + 1);
+  refetchBaselines(); // Update sidebar today badges
+};
+```
+
+### AppSidebar.tsx changes
+
+Update interface and badge logic:
+
+```typescript
+interface AppSidebarProps {
+  portfolios: Portfolio[];
+  getMetrics: (portfolioId: string) => PortfolioMetrics | undefined;
+  getTodayBaseline: (portfolioId: string) => number | null;
+  onCreateClick: () => void;
+}
+
+// In each portfolio row:
+const metrics = getMetrics(portfolio.id);
+const equityNow = metrics?.totalValue ?? null;
+const baseline = getTodayBaseline(portfolio.id);
+const hasTodayData = equityNow !== null && baseline !== null && baseline > 0;
+const todayDelta = hasTodayData ? equityNow! - baseline! : null;
+const isPositive = todayDelta !== null ? todayDelta >= 0 : true;
+
+// Badge shows todayDelta or neutral dash
+{hasTodayData && todayDelta !== null ? (
+  <span className={cn(...)}>
+    {isPositive ? <TrendingUp /> : <TrendingDown />}
+    {isPositive ? '+' : ''}{formatCurrency(todayDelta)}
+  </span>
+) : (
+  <span className="text-xs text-muted-foreground shrink-0 ml-2">—</span>
+)}
+```
+
+## Files Summary
+
+| File | Change |
+|------|--------|
+| `src/App.tsx` | Add `PortfolioDetailKeyed` with `key={id}` |
+| `src/hooks/usePortfolioTodaySummary.ts` | New hook: scoped baseline query (last 3 days, limited rows) |
+| `src/layouts/AppLayout.tsx` | Wire hook, pass to sidebar + outlet context |
+| `src/pages/PortfolioDetail.tsx` | Call `refetchBaselines()` after trade |
+| `src/components/AppSidebar.tsx` | Badge shows equity-based todayDelta |
 
