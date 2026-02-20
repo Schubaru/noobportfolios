@@ -1,82 +1,71 @@
 
-# Unify 1D Performance with day_reference_value
+
+# Unify Today Card with day_reference_value Baseline
 
 ## Overview
 
-When the 1D range is selected, the hero performance pill will use `day_reference_value` (previous close equity) as its baseline instead of the first chart point. This makes the 1D pill match brokerage-standard "change since previous close" and aligns with the sidebar badges.
-
-## Baseline source confirmation
-
-Both the **sidebar badges** and this new **1D chart baseline** will use the exact same origin: `value_history.day_reference_value`, fetched by `usePortfolioTodaySummary`. This column is computed in `snapshot-portfolio` as `sum(shares * prevClose) + cash`.
-
-The **Today card** in Portfolio Position uses `calculateDailyPL(holdings)` which computes `sum((currentPrice - previousClose) * shares)` -- a holdings-only delta. Mathematically, `equity(now) - day_reference_value = (holdingsValue + cash) - (prevCloseHoldings + cash) = holdingsValue - prevCloseHoldings`, which equals `calculateDailyPL` when cash hasn't changed since the snapshot. After intraday trades, a small divergence is possible since cash shifts between the snapshot baseline and current state. Both approaches are valid; they simply measure from slightly different reference points. The 1D pill and sidebar badge will be guaranteed identical since they share the same `day_reference_value` origin.
+Replace the quote-based `metrics.dailyPL` logic in the Today card with the same `day_reference_value` baseline used by the 1D hero pill, guaranteeing an exact match.
 
 ## Changes
 
-### 1. PortfolioGrowthChart.tsx -- add `dayReferenceValue` prop with strict check
+### 1. PerformanceSummary.tsx
 
-- Add optional prop `dayReferenceValue?: number | null`
-- Destructure it in the component params
-- Update the `startEquity` memo:
-
+**Add `todayBaseline` prop** to `PerformanceSummaryProps`:
 ```typescript
-const startEquity = useMemo(() => {
-  if (chartData.length === 0) return 0;
-  if (
-    selectedRange === '1D' &&
-    typeof dayReferenceValue === 'number' &&
-    Number.isFinite(dayReferenceValue) &&
-    dayReferenceValue > 0
-  ) {
-    return dayReferenceValue;
-  }
-  return chartData[0].equity;
-}, [chartData, selectedRange, dayReferenceValue]);
+interface PerformanceSummaryProps {
+  metrics: PortfolioMetrics;
+  cash: number;
+  startingCash: number;
+  todayBaseline?: number | null;
+}
 ```
 
-- All downstream (rangeStats, hover gain, tooltip delta, line color) already reference `startEquity`, so they pick up the corrected baseline automatically
-- 1W, 1M, ALL are completely unaffected
+**Replace daily PL variables** in `PerformanceDetails` (lines 90-96):
+```typescript
+export const PerformanceDetails = ({
+  metrics, cash, startingCash, todayBaseline
+}: PerformanceSummaryProps) => {
+  const hasTodayBaseline = typeof todayBaseline === 'number'
+    && Number.isFinite(todayBaseline) && todayBaseline > 0;
+  const todayDelta = hasTodayBaseline ? metrics.totalValue - todayBaseline : null;
+  const todayPct = hasTodayBaseline && todayBaseline! > 0
+    ? (todayDelta! / todayBaseline!) * 100 : null;
+  const hasTodayData = todayDelta !== null;
+  const isTodayPositive = todayDelta !== null && todayDelta >= 0;
+```
 
-### 2. AppLayout.tsx -- pass `getTodayBaseline` through Outlet context
+**Update the Today card** (lines 136-153) to use `todayDelta`, `todayPct`, `hasTodayData`, `isTodayPositive` instead of `metrics.dailyPL`, `metrics.dailyPLPercent`, `hasDailyData`, `isPositiveDaily`.
 
-- Line 125: add `getTodayBaseline` to the context object:
-  ```
-  <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline }} />
-  ```
+### 2. PortfolioDetail.tsx
 
-### 3. PortfolioDetail.tsx -- wire it up
+Pass the baseline to PerformanceDetails (line 220):
+```tsx
+<PerformanceDetails
+  metrics={metrics}
+  cash={portfolio.cash}
+  startingCash={portfolio.startingCash}
+  todayBaseline={getTodayBaseline(portfolio.id)}
+/>
+```
 
-- Update the `useOutletContext` type and destructuring to include `getTodayBaseline`:
-  ```typescript
-  const { refetchBaselines, getTodayBaseline } = useOutletContext<{
-    refetchBaselines: () => Promise<void>;
-    getTodayBaseline: (portfolioId: string) => number | null;
-  }>();
-  ```
-- Pass the baseline to the chart:
-  ```tsx
-  <PortfolioGrowthChart
-    portfolioId={portfolio.id}
-    refreshKey={refreshKey}
-    selectedRange={selectedRange}
-    onHoverChange={handleHoverChange}
-    onRangeStats={setRangeStats}
-    dayReferenceValue={getTodayBaseline(portfolio.id)}
-  />
-  ```
+`getTodayBaseline` is already available from the outlet context.
 
 ## What stays the same
 
-- 1W, 1M, ALL ranges use first chart point (unchanged)
-- Today card in Portfolio Position (unchanged -- uses `calculateDailyPL`)
-- Sidebar badges (unchanged -- already use `day_reference_value`)
-- Chart rendering, hover, tooltip layout (unchanged)
-- If `day_reference_value` is missing/invalid, falls back to `chartData[0].equity`
+- Hero pill 1D logic (already unified)
+- Sidebar badges (already use day_reference_value)
+- 1W / 1M / ALL ranges
+- Chart hover scrubbing
+- Old `calculateDailyPL` and `PortfolioMetrics` daily fields remain in code for now (cleanup deferred per request)
+
+## Result
+
+Hero pill (1D) and Today card both compute: `equity(now) - day_reference_value`. Exact match guaranteed.
 
 ## Files modified
 
 | File | Change |
 |------|--------|
-| `src/components/PortfolioGrowthChart.tsx` | Add `dayReferenceValue` prop, strict numeric check in `startEquity` memo |
-| `src/layouts/AppLayout.tsx` | Add `getTodayBaseline` to Outlet context |
-| `src/pages/PortfolioDetail.tsx` | Destructure `getTodayBaseline` from context, pass to chart |
+| `src/components/PerformanceSummary.tsx` | Add `todayBaseline` prop, derive today delta from it instead of `metrics.dailyPL` |
+| `src/pages/PortfolioDetail.tsx` | Pass `getTodayBaseline(portfolio.id)` to `PerformanceDetails` |
+
