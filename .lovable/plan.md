@@ -1,57 +1,82 @@
 
-# Wire "Search Assets" to the Existing Trade Modal
+# Unify 1D Performance with day_reference_value
 
 ## Overview
 
-Make the sidebar's "Search assets" button open the same TradeModal used elsewhere, starting at the asset search step, scoped to the currently active portfolio. One shared modal instance, no sidebar UI changes.
+When the 1D range is selected, the hero performance pill will use `day_reference_value` (previous close equity) as its baseline instead of the first chart point. This makes the 1D pill match brokerage-standard "change since previous close" and aligns with the sidebar badges.
+
+## Baseline source confirmation
+
+Both the **sidebar badges** and this new **1D chart baseline** will use the exact same origin: `value_history.day_reference_value`, fetched by `usePortfolioTodaySummary`. This column is computed in `snapshot-portfolio` as `sum(shares * prevClose) + cash`.
+
+The **Today card** in Portfolio Position uses `calculateDailyPL(holdings)` which computes `sum((currentPrice - previousClose) * shares)` -- a holdings-only delta. Mathematically, `equity(now) - day_reference_value = (holdingsValue + cash) - (prevCloseHoldings + cash) = holdingsValue - prevCloseHoldings`, which equals `calculateDailyPL` when cash hasn't changed since the snapshot. After intraday trades, a small divergence is possible since cash shifts between the snapshot baseline and current state. Both approaches are valid; they simply measure from slightly different reference points. The 1D pill and sidebar badge will be guaranteed identical since they share the same `day_reference_value` origin.
 
 ## Changes
 
-### 1. AppSidebar.tsx -- add `onSearchClick` callback
+### 1. PortfolioGrowthChart.tsx -- add `dayReferenceValue` prop with strict check
 
-- Add `onSearchClick: () => void` to the props interface
-- Attach it as `onClick` on the existing "Search assets" div (line 56)
-- No visual or layout changes
+- Add optional prop `dayReferenceValue?: number | null`
+- Destructure it in the component params
+- Update the `startEquity` memo:
 
-### 2. TradeModal.tsx -- add optional `initialStep` prop
+```typescript
+const startEquity = useMemo(() => {
+  if (chartData.length === 0) return 0;
+  if (
+    selectedRange === '1D' &&
+    typeof dayReferenceValue === 'number' &&
+    Number.isFinite(dayReferenceValue) &&
+    dayReferenceValue > 0
+  ) {
+    return dayReferenceValue;
+  }
+  return chartData[0].equity;
+}, [chartData, selectedRange, dayReferenceValue]);
+```
 
-- Add `initialStep?: TradeStep` to `TradeModalProps`
-- In the `useEffect` that runs when `isOpen` changes (line 923-928), use `initialStep` to set the starting step:
-  - If `initialSymbol` is provided: jump to details (existing behavior)
-  - Else if `initialStep` is provided: use it (will be `'search'` for search assets)
-  - Else: default to `'search'` (existing behavior)
-- In `resetState`, reset step to `initialStep ?? 'search'`
-- This is a no-op change for existing callers since the default is already `'search'`
+- All downstream (rangeStats, hover gain, tooltip delta, line color) already reference `startEquity`, so they pick up the corrected baseline automatically
+- 1W, 1M, ALL are completely unaffected
 
-### 3. AppLayout.tsx -- single shared TradeModal + state
+### 2. AppLayout.tsx -- pass `getTodayBaseline` through Outlet context
 
-- Add state: `tradeModalOpen: boolean` and `tradeInitialStep: TradeStep` (default `'search'`)
-- Extract `fetchPortfolios` from `usePortfolios`
-- Derive `activePortfolio = portfolios.find(p => p.id === id)`
-- Pass `onSearchClick` to AppSidebar:
-  - If `activePortfolio` exists: set `tradeInitialStep = 'search'`, open modal
-  - If not: show toast "Open a portfolio to search and trade."
-- Render ONE TradeModal (only when `activePortfolio` exists):
-  - `isOpen={tradeModalOpen}`
-  - `portfolio={activePortfolio}`
-  - `initialStep={tradeInitialStep}`
-  - `onTradeComplete`: calls `fetchPortfolios()` + `refetchBaselines()`, then closes modal
-  - `onClose`: sets `tradeModalOpen = false`
-- Pass `fetchPortfolios` + a `openTradeModal` callback through `Outlet context` so PortfolioDetail can also use the same modal instance (or keep its own -- both work since only one is open at a time)
+- Line 125: add `getTodayBaseline` to the context object:
+  ```
+  <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline }} />
+  ```
 
-### 4. PortfolioDetail -- no changes needed
+### 3. PortfolioDetail.tsx -- wire it up
 
-PortfolioDetail already renders its own TradeModal. Since only one modal is open at a time, there's no conflict. After a sidebar-initiated trade, `fetchPortfolios()` updates the shared hook state, and PortfolioDetail picks up the refreshed data on next render.
+- Update the `useOutletContext` type and destructuring to include `getTodayBaseline`:
+  ```typescript
+  const { refetchBaselines, getTodayBaseline } = useOutletContext<{
+    refetchBaselines: () => Promise<void>;
+    getTodayBaseline: (portfolioId: string) => number | null;
+  }>();
+  ```
+- Pass the baseline to the chart:
+  ```tsx
+  <PortfolioGrowthChart
+    portfolioId={portfolio.id}
+    refreshKey={refreshKey}
+    selectedRange={selectedRange}
+    onHoverChange={handleHoverChange}
+    onRangeStats={setRangeStats}
+    dayReferenceValue={getTodayBaseline(portfolio.id)}
+  />
+  ```
 
-## Edge Cases
+## What stays the same
 
-- **No portfolio selected** (bare `/portfolio` route): toast message, no modal opens
-- **Trade completion from search flow**: `fetchPortfolios()` + `refetchBaselines()` refresh sidebar totals and active portfolio view
+- 1W, 1M, ALL ranges use first chart point (unchanged)
+- Today card in Portfolio Position (unchanged -- uses `calculateDailyPL`)
+- Sidebar badges (unchanged -- already use `day_reference_value`)
+- Chart rendering, hover, tooltip layout (unchanged)
+- If `day_reference_value` is missing/invalid, falls back to `chartData[0].equity`
 
 ## Files modified
 
 | File | Change |
 |------|--------|
-| `src/components/AppSidebar.tsx` | Add `onSearchClick` prop, wire to "Search assets" onClick |
-| `src/components/TradeModal.tsx` | Add optional `initialStep` prop, use in open/reset logic |
-| `src/layouts/AppLayout.tsx` | Add trade modal state, derive active portfolio, render shared TradeModal, pass onSearchClick |
+| `src/components/PortfolioGrowthChart.tsx` | Add `dayReferenceValue` prop, strict numeric check in `startEquity` memo |
+| `src/layouts/AppLayout.tsx` | Add `getTodayBaseline` to Outlet context |
+| `src/pages/PortfolioDetail.tsx` | Destructure `getTodayBaseline` from context, pass to chart |
