@@ -43,6 +43,7 @@ interface PortfolioGrowthChartProps {
   refreshKey: number;
   onHoverChange?: (state: ChartHoverState | null) => void;
   onRangeStats?: (stats: RangeStats) => void;
+  dayReferenceValue?: number | null;
 }
 
 function getRefreshMs(range: TimeRange, holdingsCount: number): number {
@@ -96,7 +97,7 @@ function CustomTooltip({ active, payload, startEquity }: any) {
   );
 }
 
-const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverChange, onRangeStats }: PortfolioGrowthChartProps) => {
+const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverChange, onRangeStats, dayReferenceValue }: PortfolioGrowthChartProps) => {
   const [perfData, setPerfData] = useState<PerformanceResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isHoveringRef = useRef(false);
@@ -153,11 +154,19 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     }));
   }, [perfData]);
 
-  // Earliest equity in the range (baseline for gain calc)
+  // Baseline for gain calc — 1D uses day_reference_value (previous close equity)
   const startEquity = useMemo(() => {
     if (chartData.length === 0) return 0;
+    if (
+      selectedRange === '1D' &&
+      typeof dayReferenceValue === 'number' &&
+      Number.isFinite(dayReferenceValue) &&
+      dayReferenceValue > 0
+    ) {
+      return dayReferenceValue;
+    }
     return chartData[0].equity;
-  }, [chartData]);
+  }, [chartData, selectedRange, dayReferenceValue]);
 
   // Emit range stats whenever chart data changes
   useEffect(() => {
