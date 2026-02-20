@@ -7,6 +7,7 @@ import CreatePortfolioModal from '@/components/CreatePortfolioModal';
 import Disclaimer from '@/components/Disclaimer';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { usePortfolioQuotes } from '@/hooks/usePortfolioQuotes';
+import { usePortfolioTodaySummary } from '@/hooks/usePortfolioTodaySummary';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { toast } from 'sonner';
 
@@ -20,6 +21,7 @@ const AppLayout = () => {
     createPortfolio: createNewPortfolio,
   } = usePortfolios();
   const { getMetrics: getLiveMetrics } = usePortfolioQuotes(portfolios);
+  const { getTodayBaseline, refetchBaselines } = usePortfolioTodaySummary(portfolios.map(p => p.id));
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [hasRedirected, setHasRedirected] = useState(false);
 
@@ -100,6 +102,7 @@ const AppLayout = () => {
         <AppSidebar
           portfolios={portfolios}
           getMetrics={getMetrics}
+          getTodayBaseline={getTodayBaseline}
           onCreateClick={() => setIsCreateModalOpen(true)}
         />
         <main className="flex-1 overflow-auto">
@@ -107,7 +110,7 @@ const AppLayout = () => {
           <div className="md:hidden sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border p-2">
             <SidebarTrigger />
           </div>
-          <Outlet />
+          <Outlet context={{ refetchBaselines }} />
         </main>
       </div>
 
