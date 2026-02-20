@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useParams } from 'react-router-dom';
 import { Loader2, Sparkles, Briefcase } from 'lucide-react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
@@ -22,13 +22,38 @@ const AppLayout = () => {
     createPortfolio: createNewPortfolio,
     fetchPortfolios,
   } = usePortfolios();
-  const { getMetrics: getLiveMetrics } = usePortfolioQuotes(portfolios);
+  const { getMetrics: getLiveMetrics, getPortfolioWithQuotes } = usePortfolioQuotes(portfolios);
   const { getTodayBaseline, refetchBaselines } = usePortfolioTodaySummary(portfolios.map(p => p.id));
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSearchTradeOpen, setIsSearchTradeOpen] = useState(false);
   const [hasRedirected, setHasRedirected] = useState(false);
 
   const activePortfolio = portfolios.find(p => p.id === id);
+
+  // Enhanced baseline: prefer DB day_reference_value, fallback to cash + Σ(shares * previousClose)
+  const getEffectiveTodayBaseline = useCallback((portfolioId: string): number | null => {
+    const dbBaseline = getTodayBaseline(portfolioId);
+    if (typeof dbBaseline === 'number' && Number.isFinite(dbBaseline) && dbBaseline > 0) {
+      return dbBaseline;
+    }
+
+    const pwq = getPortfolioWithQuotes(portfolioId);
+    const source = pwq?.portfolio ?? portfolios.find(p => p.id === portfolioId);
+    if (!source || source.holdings.length === 0) return null;
+
+    let allHavePrevClose = true;
+    const prevCloseTotal = source.holdings.reduce((sum, h) => {
+      if (typeof h.previousClose === 'number' && h.previousClose > 0) {
+        return sum + h.shares * h.previousClose;
+      }
+      allHavePrevClose = false;
+      return sum;
+    }, 0);
+
+    if (!allHavePrevClose) return null;
+    const fallback = source.cash + prevCloseTotal;
+    return fallback > 0 ? fallback : null;
+  }, [getTodayBaseline, getPortfolioWithQuotes, portfolios]);
 
   // Redirect to first portfolio if on bare /portfolio route or no id
   useEffect(() => {
@@ -107,7 +132,7 @@ const AppLayout = () => {
         <AppSidebar
           portfolios={portfolios}
           getMetrics={getMetrics}
-          getTodayBaseline={getTodayBaseline}
+          getTodayBaseline={getEffectiveTodayBaseline}
           onCreateClick={() => setIsCreateModalOpen(true)}
           onSearchClick={() => {
             if (activePortfolio) {
@@ -122,7 +147,7 @@ const AppLayout = () => {
           <div className="md:hidden sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border p-2">
             <SidebarTrigger />
           </div>
-          <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline }} />
+          <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline: getEffectiveTodayBaseline }} />
         </main>
       </div>
 
