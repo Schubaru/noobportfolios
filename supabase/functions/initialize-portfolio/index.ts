@@ -272,6 +272,49 @@ Deno.serve(async (req) => {
       .update({ cash: remainingCash })
       .eq('id', portfolioId);
 
+    // Close the initial cash_history row and insert post-trade row
+    const tradeTime = new Date().toISOString();
+
+    // Find and close latest open cash_history row by id
+    const { data: openCashRow } = await supabaseAdmin
+      .from('cash_history')
+      .select('id')
+      .eq('portfolio_id', portfolioId)
+      .is('effective_to', null)
+      .order('effective_from', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (openCashRow) {
+      await supabaseAdmin
+        .from('cash_history')
+        .update({ effective_to: tradeTime })
+        .eq('id', openCashRow.id);
+    }
+
+    // Insert new cash_history row with remaining cash
+    await supabaseAdmin.from('cash_history').insert({
+      portfolio_id: portfolioId,
+      amount: remainingCash,
+      effective_from: tradeTime,
+    });
+
+    // Insert holdings_history rows for each initial holding
+    const holdingsHistoryRows = holdings.map(h => ({
+      portfolio_id: portfolioId,
+      symbol: h.symbol,
+      shares: h.shares,
+      avg_cost: h.avg_cost,
+      effective_from: tradeTime,
+    }));
+
+    if (holdingsHistoryRows.length > 0) {
+      const { error: hhError } = await supabaseAdmin
+        .from('holdings_history')
+        .insert(holdingsHistoryRows);
+      if (hhError) console.error('Error creating holdings_history:', hhError);
+    }
+
     // Create initial value history entry
     const totalValue = remainingCash + holdings.reduce((sum, h) => sum + h.shares * h.avg_cost, 0);
     await supabaseAdmin
