@@ -10,6 +10,37 @@ const corsHeaders = {
 
 type Range = '1D' | '1W' | '1M' | 'ALL';
 
+// Convert UTC ms to US/Eastern YYYY-MM-DD for symbol_daily_prices queries
+function toEasternDate(ms: number): string {
+  return new Date(ms).toLocaleString('en-CA', { timeZone: 'America/New_York' }).split(',')[0];
+}
+
+// Fetch most recent daily close per symbol BEFORE range start
+async function fetchSeedPrices(
+  serviceClient: ReturnType<typeof createClient>,
+  symbols: string[],
+  rangeStartMs: number,
+): Promise<Map<string, number>> {
+  const seedPrices = new Map<string, number>();
+  if (symbols.length === 0) return seedPrices;
+
+  const startDate = toEasternDate(rangeStartMs);
+  const { data } = await serviceClient
+    .from('symbol_daily_prices')
+    .select('symbol, close_price, date')
+    .in('symbol', symbols)
+    .lt('date', startDate)
+    .order('date', { ascending: false })
+    .limit(symbols.length * 5);
+
+  for (const row of (data || [])) {
+    if (!seedPrices.has(row.symbol)) {
+      seedPrices.set(row.symbol, Number(row.close_price));
+    }
+  }
+  return seedPrices;
+}
+
 // ── Response cache (bars only, not live point) ──
 const responseCache = new Map<string, { body: string; ts: number }>();
 function responseTTL(range: Range): number {
@@ -186,6 +217,8 @@ Deno.serve(async (req) => {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
+    const serviceClient = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
     const authHeader = req.headers.get('Authorization') || '';
     const userClient = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
@@ -262,6 +295,12 @@ Deno.serve(async (req) => {
     const allSymbols = [...new Set(holdingsRows.map(r => r.symbol))];
     const { timeframe, start, end } = rangeConfig(range, portfolioCreatedAt, now);
 
+    // Fetch seed prices (most recent close before range start)
+    const seedPrices = await fetchSeedPrices(serviceClient, allSymbols, start);
+
+    // Track unpriced symbols (no seed AND no bars)
+    // We'll finalize this after fetching bars below
+
     // For 1D, check bar cache separately (bars cached 60s)
     const barCacheKey = `bars:${portfolioId}:${range}`;
     let barsBySymbol: Map<string, { t: number; c: number }[]>;
@@ -283,9 +322,19 @@ Deno.serve(async (req) => {
     }
     const canonicalTs = [...tsSet].sort((a, b) => a - b);
 
+    // Determine unpriced symbols: no seed AND no bars
+    const unpricedSymbols: string[] = [];
+    for (const sym of allSymbols) {
+      const bars = barsBySymbol.get(sym) || [];
+      if (!seedPrices.has(sym) && bars.length === 0) {
+        unpricedSymbols.push(sym);
+      }
+    }
+
     if (canonicalTs.length === 0) {
       return new Response(JSON.stringify({
         points: [], range, available: false,
+        unpricedSymbols: unpricedSymbols.length > 0 ? unpricedSymbols : undefined,
         message: 'No market data available for the selected range.',
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -295,7 +344,7 @@ Deno.serve(async (req) => {
     for (const sym of allSymbols) {
       const bars = barsBySymbol.get(sym) || [];
       const priceMap = new Map<number, number>();
-      let lastPrice: number | null = null;
+      let lastPrice: number | null = seedPrices.get(sym) ?? null;
       let barIdx = 0;
 
       for (const t of canonicalTs) {
@@ -327,7 +376,7 @@ Deno.serve(async (req) => {
       for (const h of holdingsRows) {
         const from = new Date(h.effective_from).getTime();
         const to = h.effective_to ? new Date(h.effective_to).getTime() : Infinity;
-        if (from <= t && t < to) {
+        if (from <= t && t < to && Number(h.shares) > 0) {
           active.push({ symbol: h.symbol, shares: Number(h.shares), avgCost: Number(h.avg_cost) });
         }
       }
@@ -372,6 +421,9 @@ Deno.serve(async (req) => {
           if (lastBar && lastBar.size > 0) {
             const lastTs = [...lastBar.keys()].pop()!;
             liveHV += h.shares * lastBar.get(lastTs)!;
+          } else {
+            const seed = seedPrices.get(h.symbol);
+            if (seed) liveHV += h.shares * seed;
           }
         }
       }
@@ -402,6 +454,7 @@ Deno.serve(async (req) => {
       range,
       available: points.length >= 2,
       holdingsCount: allSymbols.length,
+      unpricedSymbols: unpricedSymbols.length > 0 ? unpricedSymbols : undefined,
       message: points.length < 2 ? 'Not enough data yet. Make a trade to start tracking.' : undefined,
     });
 
