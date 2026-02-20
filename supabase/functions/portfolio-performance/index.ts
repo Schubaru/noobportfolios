@@ -331,14 +331,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (canonicalTs.length === 0) {
-      return new Response(JSON.stringify({
-        points: [], range, available: false,
-        unpricedSymbols: unpricedSymbols.length > 0 ? unpricedSymbols : undefined,
-        message: 'No market data available for the selected range.',
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
     // Pre-build forward-fill price maps per symbol
     const priceMaps = new Map<string, Map<number, number>>();
     for (const sym of allSymbols) {
@@ -365,8 +357,7 @@ Deno.serve(async (req) => {
       for (const c of cashRows) {
         const from = new Date(c.effective_from).getTime();
         const to = c.effective_to ? new Date(c.effective_to).getTime() : Infinity;
-        if (from <= t && t < to) return Number(c.amount); // exact range match
-        // fallback: most recent row that started at-or-before t
+        if (from <= t && t < to) return Number(c.amount);
         if (from <= t && from > bestFrom) {
           bestFrom = from;
           cash = Number(c.amount);
@@ -387,9 +378,53 @@ Deno.serve(async (req) => {
       return active;
     }
 
-    // Compute value at each canonical timestamp
-    const rawPoints: { t: string; v: number; hv: number; cb: number }[] = [];
+    // Helper: best known price at-or-before a ms timestamp (bars first, then seed)
+    function getPriceAtOrBefore(sym: string, tsMs: number): number | null {
+      const bars = barsBySymbol.get(sym) || [];
+      let bestBarPrice: number | null = null;
+      for (const b of bars) {
+        if (b.t <= tsMs) {
+          bestBarPrice = b.c;
+        } else {
+          break;
+        }
+      }
+      if (bestBarPrice !== null) return bestBarPrice;
+      return seedPrices.get(sym) ?? null;
+    }
+
+    // ── Anchor point at range start ──
+    const startMs = start; // already ms from rangeConfig
+    const anchorHoldings = getActiveHoldings(startMs);
+    const anchorCash = getCashAt(startMs);
+    let anchorHV = 0;
+    let anchorCB = 0;
+    const unpricedAtAnchor: string[] = [];
+
+    for (const h of anchorHoldings) {
+      anchorCB += h.shares * h.avgCost;
+      const price = getPriceAtOrBefore(h.symbol, startMs);
+      if (price !== null) {
+        anchorHV += h.shares * price;
+      } else {
+        // No market price available — use avg_cost (purchase price) as best estimate
+        anchorHV += h.shares * h.avgCost;
+        unpricedAtAnchor.push(h.symbol);
+      }
+    }
+
+    const anchorPoint = {
+      t: new Date(startMs).toISOString(),
+      v: Math.round((anchorHV + anchorCash) * 100) / 100,
+      hv: Math.round(anchorHV * 100) / 100,
+      cb: Math.round(anchorCB * 100) / 100,
+      cash: Math.round(anchorCash * 100) / 100,
+    };
+
+    const rawPoints: { t: string; v: number; hv: number; cb: number; cash: number }[] = [anchorPoint];
+
     for (const t of canonicalTs) {
+      if (t <= startMs) continue;
       const holdings = getActiveHoldings(t);
       let hv = 0;
       let cb = 0;
@@ -406,6 +441,7 @@ Deno.serve(async (req) => {
         v: Math.round((hv + cash) * 100) / 100,
         hv: Math.round(hv * 100) / 100,
         cb: Math.round(cb * 100) / 100,
+        cash: Math.round(cash * 100) / 100,
       });
     }
 
@@ -437,6 +473,7 @@ Deno.serve(async (req) => {
         v: Math.round((liveHV + liveCash) * 100) / 100,
         hv: Math.round(liveHV * 100) / 100,
         cb: Math.round(liveCB * 100) / 100,
+        cash: Math.round(liveCash * 100) / 100,
       };
 
       if (rawPoints.length > 0) {
@@ -459,6 +496,7 @@ Deno.serve(async (req) => {
       available: points.length >= 2,
       holdingsCount: allSymbols.length,
       unpricedSymbols: unpricedSymbols.length > 0 ? unpricedSymbols : undefined,
+      unpricedAtAnchor: unpricedAtAnchor.length > 0 ? unpricedAtAnchor : undefined,
       message: points.length < 2 ? 'Not enough data yet. Make a trade to start tracking.' : undefined,
     });
 
