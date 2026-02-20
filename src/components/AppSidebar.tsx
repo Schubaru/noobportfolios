@@ -23,9 +23,10 @@ interface AppSidebarProps {
   getMetrics: (portfolioId: string) => PortfolioMetrics | undefined;
   getTodayBaseline: (portfolioId: string) => number | null;
   onCreateClick: () => void;
+  onSearchClick: () => void;
 }
 
-const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick }: AppSidebarProps) => {
+const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, onSearchClick }: AppSidebarProps) => {
   const navigate = useNavigate();
   const { id: activeId } = useParams<{ id: string }>();
 
@@ -53,7 +54,10 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick }:
         </div>
 
         {/* Search placeholder */}
-        <div className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-muted-foreground text-sm cursor-pointer hover:bg-white/5 transition-colors">
+        <div
+          onClick={onSearchClick}
+          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-muted-foreground text-sm cursor-pointer hover:bg-white/5 transition-colors"
+        >
           <Search className="w-4 h-4" />
           Search assets
         </div>

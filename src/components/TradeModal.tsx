@@ -15,6 +15,7 @@ interface TradeModalProps {
   portfolio: Portfolio;
   onTradeComplete: (tradeId?: string) => void | Promise<void>;
   initialSymbol?: string;
+  initialStep?: TradeStep;
 }
 type TradeType = 'buy' | 'sell';
 type TradeStep = 'search' | 'details' | 'confirm';
@@ -819,7 +820,8 @@ const TradeModal = ({
   onClose,
   portfolio,
   onTradeComplete,
-  initialSymbol
+  initialSymbol,
+  initialStep,
 }: TradeModalProps) => {
   const [step, setStep] = useState<TradeStep>('search');
   const [tradeType, setTradeType] = useState<TradeType>('buy');
@@ -862,7 +864,7 @@ const TradeModal = ({
   const totalCost = effectiveShares * currentPrice;
   const hasValidInput = inputMode === 'shares' ? shares && Number(shares) > 0 : dollarAmount && Number(dollarAmount) > 0;
   const resetState = useCallback(() => {
-    setStep('search');
+    setStep(initialStep ?? 'search');
     setTradeType('buy');
     setInputMode('shares');
     setSearchQuery('');
@@ -884,7 +886,7 @@ const TradeModal = ({
       clearInterval(quoteRefreshRef.current);
       quoteRefreshRef.current = null;
     }
-  }, []);
+  }, [initialStep]);
 
   // Fetch all market data for a symbol
   const fetchMarketData = useCallback(async (symbol: string) => {
@@ -924,8 +926,10 @@ const TradeModal = ({
       resetState();
     } else if (initialSymbol) {
       handleSelectSymbol(initialSymbol);
+    } else if (initialStep) {
+      setStep(initialStep);
     }
-  }, [isOpen, initialSymbol, resetState]);
+  }, [isOpen, initialSymbol, initialStep, resetState]);
 
   // Set up quote refresh interval when on details step
   useEffect(() => {
