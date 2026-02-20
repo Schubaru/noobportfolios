@@ -1,48 +1,129 @@
 
 
-# Fix Inflated Equity: Backfill cash_history + Initialize-portfolio + Harden getCashAt
+# Add Range-Start Anchor Point to portfolio-performance
 
 ## Problem
 
-Portfolio `577d4df6` has 17 transactions but only 1 `cash_history` row showing $10,000 (with `effective_to = NULL`). The actual current cash is $1,502.50. Because `getCashAt(t)` always returns $10,000, equity = $10,000 + holdingsValue -- roughly double the true value.
+The chart's first data point comes from the earliest Alpaca bar, which can be well after `rangeStart`. This causes `startEquity` to be an arbitrary mid-range value (e.g. ~$393), producing absurd deltas like +1500%.
 
-5 portfolios need backfill (those with exactly 1 cash_history row). Portfolio `93f96f08` already has 6 rows and will be skipped. Only `buy` and `sell` transaction types exist (confirmed).
+## Solution
 
-## Changes
+Prepend a synthetic anchor point at `rangeStart = max(selectedRangeStart, portfolioCreatedAt)` before bar-driven points. This anchor becomes `chartData[0]`, which the frontend already uses as `startEquity`.
 
-### 1. SQL Migration -- Backfill cash_history
+## Changes (single file: `supabase/functions/portfolio-performance/index.ts`)
 
-A PL/pgSQL block that:
-- Only processes portfolios where `cash_history` has exactly 1 row (idempotent)
-- Iterates buy/sell transactions chronologically per portfolio
-- For each transaction: finds the latest open row by `id` (ORDER BY effective_from DESC LIMIT 1), closes it, then inserts a new row with updated cash amount
-- Expected result for `577d4df6`: 18 cash_history rows (1 seed + 17 transactions), final open row amount = ~$1,502.50
+### 1. Add `getPriceAtOrBefore` helper (after `getActiveHoldings`)
 
-### 2. Update `supabase/functions/initialize-portfolio/index.ts`
+Resolves the best price for a symbol at a given timestamp:
+- Scans bars (sorted asc) for the last bar with `t <= tsMs` (number-to-number comparison)
+- Falls back to `seedPrices` only if no bar qualifies
+- Returns `null` if neither source has data
 
-After batch buys and `portfolios.cash` update:
-- Find and close the latest open `cash_history` row by `id`
-- Insert new `cash_history` row with `remainingCash`
-- Insert `holdings_history` rows for each initial holding
+```typescript
+function getPriceAtOrBefore(sym: string, tsMs: number): number | null {
+  const bars = barsBySymbol.get(sym) || [];
+  let bestBarPrice: number | null = null;
+  for (const b of bars) {
+    if (b.t <= tsMs) {
+      bestBarPrice = b.c;
+    } else {
+      break;
+    }
+  }
+  if (bestBarPrice !== null) return bestBarPrice;
+  return seedPrices.get(sym) ?? null;
+}
+```
 
-### 3. Harden `getCashAt` in `supabase/functions/portfolio-performance/index.ts`
+### 2. Compute anchor point (replace the "no canonical timestamps" early return + the rawPoints loop)
 
-Replace the simple loop with a two-pass approach:
-- First: exact range match (`from <= t && t < to`) returns immediately
-- Second (fallback): use the most recent row that started at-or-before `t`, instead of defaulting to `starting_cash`
+- Remove the early return when `canonicalTs.length === 0` (anchor still valid even with no bars)
+- Compute anchor using `getActiveHoldings(startMs)`, `getCashAt(startMs)`, and `getPriceAtOrBefore` for each held symbol
+- Track `unpricedAtAnchor` for symbols with no price source
+- Include `cash` field on every point for debugging
 
-## Validation After Deploy
+```typescript
+const startMs = start; // number from rangeConfig -- ensures number-to-number comparisons
 
-- `cash_history` open row for `577d4df6` should show ~$1,502.50 matching `portfolios.cash`
-- `cash_history` row count for `577d4df6` should be 18 (1 seed + 17 transactions)
-- Chart equity should no longer show ~$18k hovers; should be ~$10k +/- market movement
-- BUY events should appear flat on the chart
+const anchorHoldings = getActiveHoldings(startMs);
+const anchorCash = getCashAt(startMs);
+let anchorHV = 0;
+let anchorCB = 0;
+const unpricedAtAnchor: string[] = [];
 
-## Files Changed
+for (const h of anchorHoldings) {
+  anchorCB += h.shares * h.avgCost;
+  const price = getPriceAtOrBefore(h.symbol, startMs);
+  if (price !== null) {
+    anchorHV += h.shares * price;
+  } else {
+    unpricedAtAnchor.push(h.symbol);
+  }
+}
 
-| File | Change |
-|------|--------|
-| SQL migration (run via migration tool) | Backfill cash_history for portfolios with count=1 |
-| `supabase/functions/initialize-portfolio/index.ts` | Write cash_history + holdings_history after batch buys |
-| `supabase/functions/portfolio-performance/index.ts` | Harden getCashAt with nearest-prior-row fallback |
+const anchorPoint = {
+  t: new Date(startMs).toISOString(),
+  v: Math.round((anchorHV + anchorCash) * 100) / 100,
+  hv: Math.round(anchorHV * 100) / 100,
+  cb: Math.round(anchorCB * 100) / 100,
+  cash: Math.round(anchorCash * 100) / 100,
+};
+```
+
+### 3. Build rawPoints starting with anchor, skipping duplicates
+
+```typescript
+const rawPoints = [anchorPoint];
+
+for (const t of canonicalTs) {
+  if (t <= startMs) continue; // anchor already covers this
+  // ... existing equity computation, but add cash field
+  rawPoints.push({
+    t: new Date(t).toISOString(),
+    v: Math.round((hv + cash) * 100) / 100,
+    hv: Math.round(hv * 100) / 100,
+    cb: Math.round(cb * 100) / 100,
+    cash: Math.round(cash * 100) / 100,
+  });
+}
+```
+
+### 4. Add `cash` field to live point (1D) for consistency
+
+The existing live point block also gets the `cash` field added.
+
+### 5. Include `unpricedAtAnchor` in the response JSON
+
+```typescript
+unpricedAtAnchor: unpricedAtAnchor.length > 0 ? unpricedAtAnchor : undefined,
+```
+
+### 6. Update `available` check
+
+Change from `points.length >= 2` to `points.length >= 1` since the anchor alone is a valid single point showing current equity. Actually keep `>= 2` -- anchor + at least one bar point is needed for a meaningful chart line.
+
+## What stays the same
+
+- `getCashAt` -- unchanged (already hardened with nearest-prior fallback)
+- `getActiveHoldings` -- unchanged
+- `fetchSeedPrices`, `fetchBars`, `fetchLiveQuotesFromCache` -- unchanged
+- Frontend `PortfolioGrowthChart.tsx` -- unchanged (already uses `chartData[0].equity` as `startEquity`)
+- `initialize-portfolio` -- unchanged (already updated in previous fix)
+- `priceMaps` forward-fill logic -- unchanged (still used for bar-driven points)
+
+## Technical Details
+
+### All 4 requested tweaks addressed:
+
+1. **Price at-or-before start**: `getPriceAtOrBefore` checks bars first (last bar with `t <= tsMs`), only falls back to seedPrice if no bar qualifies
+2. **Number-to-number comparisons**: `startMs = start` (already a number from `rangeConfig`), all comparisons use `t <= startMs` where both are ms timestamps
+3. **Cash on all points**: Every point (anchor, bar-driven, live) includes a `cash` field for debugging/consistency
+4. **Unpriced tracking**: `unpricedAtAnchor` array tracks symbols held at start with no price source, included in response
+
+## Acceptance Criteria
+
+- 1M pill shows sane delta (baseline ~$10k for a $10k portfolio, not ~$393)
+- BUY events appear flat on chart (cash down + holdings up = same equity)
+- Hover equity never shows absurd baselines
+- `unpricedAtAnchor` in response flags any symbols that couldn't be valued at the anchor
 
