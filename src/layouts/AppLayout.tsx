@@ -122,7 +122,7 @@ const AppLayout = () => {
           <div className="md:hidden sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border p-2">
             <SidebarTrigger />
           </div>
-          <Outlet context={{ refetchBaselines, fetchPortfolios }} />
+          <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline }} />
         </main>
       </div>
 
