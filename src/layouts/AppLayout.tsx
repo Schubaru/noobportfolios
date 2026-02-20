@@ -98,7 +98,7 @@ const AppLayout = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background p-2 gap-2">
+      <div className="min-h-screen flex w-full bg-background pt-3 pl-3 pb-3 pr-2 gap-3">
         <AppSidebar
           portfolios={portfolios}
           getMetrics={getMetrics}
