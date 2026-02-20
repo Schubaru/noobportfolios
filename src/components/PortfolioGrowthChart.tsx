@@ -46,18 +46,6 @@ interface PortfolioGrowthChartProps {
   dayReferenceValue?: number | null;
 }
 
-function getRefreshMs(range: TimeRange, holdingsCount: number): number {
-  const base = (() => {
-    switch (range) {
-      case '1D': return 15_000;
-      case '1W': return 60_000;
-      case '1M': return 60_000;
-      case 'ALL': return 5 * 60_000;
-    }
-  })();
-  return holdingsCount > 25 ? base * 2 : base;
-}
-
 const MIN_FETCH_INTERVAL_MS = 15_000;
 
 async function fetchPerformance(portfolioId: string, range: TimeRange): Promise<PerformanceResponse | null> {
@@ -102,9 +90,7 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
   const [isLoading, setIsLoading] = useState(true);
   const isHoveringRef = useRef(false);
   const hoverDebounceRef = useRef<number | null>(null);
-  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef(0);
-  const holdingsCountRef = useRef(0);
 
   const loadData = useCallback(async () => {
     const now = Date.now();
@@ -114,9 +100,6 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     const data = await fetchPerformance(portfolioId, selectedRange);
     if (data) {
       setPerfData(data);
-      if (data.holdingsCount !== undefined) {
-        holdingsCountRef.current = data.holdingsCount;
-      }
     }
     setIsLoading(false);
   }, [portfolioId, selectedRange]);
@@ -136,14 +119,7 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     }
   }, [refreshKey, loadData]);
 
-  // Auto-refresh
-  useEffect(() => {
-    const ms = getRefreshMs(selectedRange, holdingsCountRef.current);
-    refreshTimerRef.current = setInterval(() => {
-      if (!isHoveringRef.current) loadData();
-    }, ms);
-    return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current); };
-  }, [loadData, selectedRange]);
+  // No auto-refresh polling — chart only fetches on load, range change, and refreshKey (after trades)
 
   // Map backend points to { timestamp, equity }
   const chartData = useMemo((): ChartPoint[] => {

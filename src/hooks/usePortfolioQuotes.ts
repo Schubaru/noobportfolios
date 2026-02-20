@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Portfolio, Holding, PortfolioMetrics } from '@/lib/types';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
-
-const REFRESH_INTERVAL_MS = 30000; // 30 seconds for Index page
+import { isUSMarketOpen, getQuoteRefreshInterval } from '@/lib/marketHours';
 
 interface PortfolioWithQuotes {
   portfolio: Portfolio;
@@ -11,30 +10,32 @@ interface PortfolioWithQuotes {
 }
 
 /**
- * Hook to fetch live quotes for multiple portfolios and calculate metrics
- * Used on the Index page to show accurate Daily P/L and Total Return
+ * Hook to fetch live quotes for multiple portfolios and calculate metrics.
+ * Market-aware: 15s during open hours, 2min when closed, 5min when tab hidden.
  */
 export const usePortfolioQuotes = (portfolios: Portfolio[]) => {
   const [portfoliosWithQuotes, setPortfoliosWithQuotes] = useState<Map<string, PortfolioWithQuotes>>(new Map());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isStale, setIsStale] = useState(false);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const isPageVisibleRef = useRef(true);
+  const staleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isPageVisibleRef = useRef(!document.hidden);
+  const currentIntervalMsRef = useRef(15_000);
 
   const fetchQuotesForPortfolios = useCallback(async () => {
     if (portfolios.length === 0) return;
 
     setIsRefreshing(true);
+    setIsStale(false);
 
     try {
-      // Collect all unique symbols across all portfolios
       const allSymbols = new Set<string>();
       portfolios.forEach(p => {
         p.holdings.forEach(h => allSymbols.add(h.symbol.toUpperCase()));
       });
 
       if (allSymbols.size === 0) {
-        // No holdings, just calculate metrics with empty holdings
         const newMap = new Map<string, PortfolioWithQuotes>();
         portfolios.forEach(p => {
           newMap.set(p.id, {
@@ -47,12 +48,9 @@ export const usePortfolioQuotes = (portfolios: Portfolio[]) => {
         return;
       }
 
-      // Fetch all quotes
       const quotes = await fetchMultipleQuotes(Array.from(allSymbols));
 
-      // Update each portfolio with live prices
       const newMap = new Map<string, PortfolioWithQuotes>();
-      
       portfolios.forEach(p => {
         const updatedHoldings: Holding[] = p.holdings.map(h => {
           const quote = quotes.get(h.symbol.toUpperCase());
@@ -63,18 +61,10 @@ export const usePortfolioQuotes = (portfolios: Portfolio[]) => {
               previousClose: quote.prevClose,
             };
           }
-          return {
-            ...h,
-            currentPrice: undefined,
-            previousClose: undefined,
-          };
+          return { ...h, currentPrice: undefined, previousClose: undefined };
         });
 
-        const updatedPortfolio: Portfolio = {
-          ...p,
-          holdings: updatedHoldings,
-        };
-
+        const updatedPortfolio: Portfolio = { ...p, holdings: updatedHoldings };
         newMap.set(p.id, {
           portfolio: updatedPortfolio,
           metrics: calculatePortfolioMetrics(updatedPortfolio),
@@ -90,52 +80,82 @@ export const usePortfolioQuotes = (portfolios: Portfolio[]) => {
     }
   }, [portfolios]);
 
-  // Initial fetch when portfolios change
+  // Schedule refresh with market-aware cadence
+  const scheduleRefresh = useCallback(() => {
+    // Clear existing timers
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current);
+      refreshIntervalRef.current = null;
+    }
+    if (staleTimerRef.current) {
+      clearTimeout(staleTimerRef.current);
+      staleTimerRef.current = null;
+    }
+
+    if (portfolios.length === 0) return;
+
+    const marketOpen = isUSMarketOpen();
+    const ms = getQuoteRefreshInterval(marketOpen, isPageVisibleRef.current);
+    currentIntervalMsRef.current = ms;
+
+    refreshIntervalRef.current = setInterval(() => {
+      fetchQuotesForPortfolios();
+    }, ms);
+
+    // Set stale detection at 2x interval
+    staleTimerRef.current = setTimeout(() => {
+      setIsStale(true);
+    }, ms * 2);
+  }, [portfolios.length, fetchQuotesForPortfolios]);
+
+  // Initial fetch
   useEffect(() => {
     if (portfolios.length > 0) {
       fetchQuotesForPortfolios();
     }
   }, [portfolios, fetchQuotesForPortfolios]);
 
-  // Auto-refresh with visibility API
+  // Market-aware auto-refresh + visibility handling
   useEffect(() => {
     const handleVisibilityChange = () => {
       isPageVisibleRef.current = !document.hidden;
-      
-      if (document.hidden) {
-        if (refreshIntervalRef.current) {
-          clearInterval(refreshIntervalRef.current);
-          refreshIntervalRef.current = null;
-        }
-      } else {
-        startAutoRefresh();
+      scheduleRefresh();
+      // Immediately refresh when becoming visible
+      if (!document.hidden && portfolios.length > 0) {
+        fetchQuotesForPortfolios();
       }
-    };
-
-    const startAutoRefresh = () => {
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-      
-      refreshIntervalRef.current = setInterval(() => {
-        if (isPageVisibleRef.current && !isRefreshing && portfolios.length > 0) {
-          fetchQuotesForPortfolios();
-        }
-      }, REFRESH_INTERVAL_MS);
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    if (portfolios.length > 0 && !document.hidden) {
-      startAutoRefresh();
-    }
+    scheduleRefresh();
+
+    // Re-check market status every 5 minutes to adjust cadence
+    const marketCheckInterval = setInterval(() => {
+      scheduleRefresh();
+    }, 5 * 60_000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
+      clearInterval(marketCheckInterval);
+      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
+      if (staleTimerRef.current) clearTimeout(staleTimerRef.current);
     };
-  }, [portfolios, isRefreshing, fetchQuotesForPortfolios]);
+  }, [scheduleRefresh, portfolios.length, fetchQuotesForPortfolios]);
+
+  // Reset stale flag on successful fetch
+  useEffect(() => {
+    if (lastUpdated) {
+      setIsStale(false);
+      // Re-arm stale timer
+      if (staleTimerRef.current) clearTimeout(staleTimerRef.current);
+      staleTimerRef.current = setTimeout(() => {
+        setIsStale(true);
+      }, currentIntervalMsRef.current * 2);
+    }
+    return () => {
+      if (staleTimerRef.current) clearTimeout(staleTimerRef.current);
+    };
+  }, [lastUpdated]);
 
   const getPortfolioWithQuotes = useCallback((portfolioId: string): PortfolioWithQuotes | undefined => {
     return portfoliosWithQuotes.get(portfolioId);
@@ -150,6 +170,7 @@ export const usePortfolioQuotes = (portfolios: Portfolio[]) => {
     getPortfolioWithQuotes,
     getMetrics,
     isRefreshing,
+    isStale,
     lastUpdated,
     refresh: fetchQuotesForPortfolios,
   };

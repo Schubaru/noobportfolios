@@ -1,9 +1,10 @@
-import { TrendingUp, TrendingDown, DollarSign, Wallet, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Wallet, Activity, Loader2 } from 'lucide-react';
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { PortfolioMetrics } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TimeRange } from '@/components/PortfolioGrowthChart';
+import { getMarketStatusLabel } from '@/lib/marketHours';
 
 interface PerformanceSummaryProps {
   metrics: PortfolioMetrics;
@@ -19,6 +20,8 @@ interface PerformanceHeaderProps extends PerformanceSummaryProps {
   rangeGain: number;
   rangeGainPercent: number;
   displayEquity?: number;
+  lastUpdated?: Date | null;
+  isStale?: boolean;
 }
 
 const RANGE_LABELS: Record<TimeRange, string> = {
@@ -35,11 +38,15 @@ export const PerformanceHeader = ({
   availableRanges,
   rangeGain,
   rangeGainPercent,
-  displayEquity
+  displayEquity,
+  lastUpdated,
+  isStale
 }: PerformanceHeaderProps) => {
   const isPositive = rangeGain >= 0;
   const hasHoldings = metrics.holdingsValue > 0;
   const shownValue = displayEquity ?? metrics.totalValue;
+  const marketStatus = getMarketStatusLabel();
+  const isMarketOpen = marketStatus === 'Market open';
 
   return (
     <div className="mb-4">
@@ -61,21 +68,42 @@ export const PerformanceHeader = ({
             </div>
             <span className="text-xs text-muted-foreground">{RANGE_LABELS[selectedRange]}</span>
           </div>
-          <div className="flex gap-1">
-            {availableRanges.map((range) =>
-          <Button
-            key={range}
-            variant={selectedRange === range ? 'default' : 'ghost'}
-            size="sm"
-            className={cn(
-              "h-7 px-2 text-xs",
-              selectedRange !== range && "hover:bg-primary/10 hover:text-primary"
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1">
+              {availableRanges.map((range) =>
+            <Button
+              key={range}
+              variant={selectedRange === range ? 'default' : 'ghost'}
+              size="sm"
+              className={cn(
+                "h-7 px-2 text-xs",
+                selectedRange !== range && "hover:bg-primary/10 hover:text-primary"
+              )}
+              onClick={() => onRangeChange(range)}>
+                  {range}
+                </Button>
             )}
-            onClick={() => onRangeChange(range)}>
-
-                {range}
-              </Button>
-          )}
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              {isStale && (
+                <span className="flex items-center gap-1 text-muted-foreground/70">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Refreshing…
+                </span>
+              )}
+              <span className={cn(
+                "flex items-center gap-1",
+                isMarketOpen ? "text-success" : "text-muted-foreground"
+              )}>
+                <span className={cn("w-1.5 h-1.5 rounded-full", isMarketOpen ? "bg-success" : "bg-muted-foreground")} />
+                {marketStatus}
+              </span>
+              {lastUpdated && !isStale && (
+                <span>
+                  · {lastUpdated.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       }

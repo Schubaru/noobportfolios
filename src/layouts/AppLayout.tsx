@@ -22,7 +22,7 @@ const AppLayout = () => {
     createPortfolio: createNewPortfolio,
     fetchPortfolios,
   } = usePortfolios();
-  const { getMetrics: getLiveMetrics, getPortfolioWithQuotes } = usePortfolioQuotes(portfolios);
+  const { getMetrics: getLiveMetrics, getPortfolioWithQuotes, lastUpdated: quotesLastUpdated, isStale: quotesIsStale, refresh: refreshQuotes } = usePortfolioQuotes(portfolios);
   const { getTodayBaseline, refetchBaselines } = usePortfolioTodaySummary(portfolios.map(p => p.id));
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSearchTradeOpen, setIsSearchTradeOpen] = useState(false);
@@ -147,7 +147,7 @@ const AppLayout = () => {
           <div className="md:hidden sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border p-2">
             <SidebarTrigger />
           </div>
-          <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline: getEffectiveTodayBaseline }} />
+          <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline: getEffectiveTodayBaseline, quotesLastUpdated, quotesIsStale, refreshQuotes }} />
         </main>
       </div>
 

@@ -17,11 +17,14 @@ const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getPortfolio, deletePortfolio, fetchPortfolios, isLoading: portfoliosLoading } = usePortfolios();
-  const { refetchBaselines, getTodayBaseline } = useOutletContext<{
+  const { refetchBaselines, getTodayBaseline, quotesLastUpdated, quotesIsStale, refreshQuotes } = useOutletContext<{
     refetchBaselines: () => Promise<void>;
     getTodayBaseline: (portfolioId: string) => number | null;
+    quotesLastUpdated: Date | null;
+    quotesIsStale: boolean;
+    refreshQuotes: () => Promise<void>;
   }>();
-  
+
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [metrics, setMetrics] = useState<PortfolioMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -143,8 +146,9 @@ const PortfolioDetail = () => {
     const freshPortfolios = await fetchPortfolios();
     const freshPortfolio = freshPortfolios.find(p => p.id === id);
     await loadPortfolioData(true, freshPortfolio);
+    await refreshQuotes(); // Immediately refresh quotes after trade
     setRefreshKey(k => k + 1);
-    refetchBaselines(); // Update sidebar today badges
+    refetchBaselines();
   };
 
   if (isLoading || portfoliosLoading) {
@@ -204,6 +208,8 @@ const PortfolioDetail = () => {
             rangeGain={displayGain}
             rangeGainPercent={displayGainPercent}
             displayEquity={hoverState?.isHovering ? displayEquity : undefined}
+            lastUpdated={quotesLastUpdated}
+            isStale={quotesIsStale}
           />
           <PortfolioGrowthChart
             portfolioId={portfolio.id}
