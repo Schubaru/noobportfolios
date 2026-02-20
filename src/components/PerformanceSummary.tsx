@@ -9,6 +9,7 @@ interface PerformanceSummaryProps {
   metrics: PortfolioMetrics;
   cash: number;
   startingCash: number;
+  todayBaseline?: number | null;
 }
 
 interface PerformanceHeaderProps extends PerformanceSummaryProps {
@@ -90,10 +91,16 @@ export const PerformanceHeader = ({
 export const PerformanceDetails = ({
   metrics,
   cash,
-  startingCash
+  startingCash,
+  todayBaseline
 }: PerformanceSummaryProps) => {
-  const isPositiveDaily = metrics.dailyPL !== null && metrics.dailyPL >= 0;
-  const hasDailyData = metrics.hasDailyBaseline && metrics.dailyPL !== null;
+  const hasTodayBaseline = typeof todayBaseline === 'number'
+    && Number.isFinite(todayBaseline) && todayBaseline > 0;
+  const todayDelta = hasTodayBaseline ? metrics.totalValue - todayBaseline! : null;
+  const todayPct = hasTodayBaseline && todayBaseline! > 0
+    ? (todayDelta! / todayBaseline!) * 100 : null;
+  const hasTodayData = todayDelta !== null;
+  const isTodayPositive = todayDelta !== null && todayDelta >= 0;
 
   return (
     <div className="glass-card p-6 h-full">
@@ -135,15 +142,15 @@ export const PerformanceDetails = ({
 
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
-            {hasDailyData && isPositiveDaily ? <TrendingUp className="w-4 h-4 text-muted-foreground" /> : hasDailyData ? <TrendingDown className="w-4 h-4 text-muted-foreground" /> : <Activity className="w-4 h-4 text-muted-foreground" />}
+            {hasTodayData && isTodayPositive ? <TrendingUp className="w-4 h-4 text-muted-foreground" /> : hasTodayData ? <TrendingDown className="w-4 h-4 text-muted-foreground" /> : <Activity className="w-4 h-4 text-muted-foreground" />}
             <p className="text-xs text-muted-foreground">Today</p>
           </div>
-          {hasDailyData ?
-          <p className={cn("text-lg font-semibold", isPositiveDaily ? "text-success" : "text-destructive")}>
-              {isPositiveDaily ? '+' : ''}{formatCurrency(metrics.dailyPL!)}
-              {metrics.dailyPLPercent !== null &&
+          {hasTodayData ?
+          <p className={cn("text-lg font-semibold", isTodayPositive ? "text-success" : "text-destructive")}>
+              {isTodayPositive ? '+' : ''}{formatCurrency(todayDelta!)}
+              {todayPct !== null &&
             <span className="text-sm ml-1 opacity-80">
-                  ({formatPercent(metrics.dailyPLPercent)})
+                  ({formatPercent(todayPct)})
                 </span>
             }
             </p> :
