@@ -17,7 +17,7 @@ interface PerformanceHeaderProps extends PerformanceSummaryProps {
   availableRanges: TimeRange[];
   rangeGain: number;
   rangeGainPercent: number;
-  displayHoldingsValue?: number;
+  displayEquity?: number;
 }
 
 const RANGE_LABELS: Record<TimeRange, string> = {
@@ -34,11 +34,11 @@ export const PerformanceHeader = ({
   availableRanges,
   rangeGain,
   rangeGainPercent,
-  displayHoldingsValue
+  displayEquity
 }: PerformanceHeaderProps) => {
   const isPositive = rangeGain >= 0;
   const hasHoldings = metrics.holdingsValue > 0;
-  const shownValue = displayHoldingsValue ?? metrics.holdingsValue;
+  const shownValue = displayEquity ?? metrics.totalValue;
 
   return (
     <div className="mb-4">
@@ -92,7 +92,6 @@ export const PerformanceDetails = ({
   cash,
   startingCash
 }: PerformanceSummaryProps) => {
-  const isPositiveUnrealized = metrics.unrealizedPL >= 0;
   const isPositiveDaily = metrics.dailyPL !== null && metrics.dailyPL >= 0;
   const hasDailyData = metrics.hasDailyBaseline && metrics.dailyPL !== null;
 
@@ -105,9 +104,9 @@ export const PerformanceDetails = ({
         <div className="p-3 rounded-lg bg-secondary/50">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4 text-muted-foreground" />
-            <p className="text-xs text-muted-foreground">Invested</p>
+            <p className="text-xs text-muted-foreground">Holdings</p>
           </div>
-          <p className="text-lg font-semibold">{formatCurrency(metrics.costBasis)}</p>
+          <p className="text-lg font-semibold">{formatCurrency(metrics.holdingsValue)}</p>
         </div>
 
         <div className="p-3 rounded-lg bg-secondary/50">
@@ -123,9 +122,15 @@ export const PerformanceDetails = ({
             <DollarSign className="w-4 h-4 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">Gain/Loss</p>
           </div>
-          <p className={cn("text-lg font-semibold", isPositiveUnrealized ? "text-success" : "text-destructive")}>
-            {isPositiveUnrealized ? '+' : ''}{formatCurrency(metrics.unrealizedPL)}
-          </p>
+          {(() => {
+            const allTimeGain = metrics.totalValue - startingCash;
+            const isPositiveAllTime = allTimeGain >= 0;
+            return (
+              <p className={cn("text-lg font-semibold", isPositiveAllTime ? "text-success" : "text-destructive")}>
+                {isPositiveAllTime ? '+' : ''}{formatCurrency(allTimeGain)}
+              </p>
+            );
+          })()}
         </div>
 
         <div className="p-3 rounded-lg bg-secondary/50">

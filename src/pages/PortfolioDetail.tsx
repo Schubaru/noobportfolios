@@ -51,7 +51,7 @@ const PortfolioDetail = () => {
   }, [portfolio?.createdAt]);
 
   // Displayed values (hover overrides live, non-hover uses range stats)
-  const displayHoldingsValue = hoverState?.isHovering ? hoverState.portfolioValue : metrics?.holdingsValue ?? 0;
+  const displayEquity = hoverState?.isHovering ? hoverState.equity : metrics?.totalValue ?? 0;
   const displayGain = hoverState?.isHovering ? hoverState.gain : rangeStats.gain;
   const displayGainPercent = hoverState?.isHovering ? hoverState.gainPercent : rangeStats.pct;
 
@@ -199,7 +199,7 @@ const PortfolioDetail = () => {
             availableRanges={availableRanges}
             rangeGain={displayGain}
             rangeGainPercent={displayGainPercent}
-            displayHoldingsValue={hoverState?.isHovering ? displayHoldingsValue : undefined}
+            displayEquity={hoverState?.isHovering ? displayEquity : undefined}
           />
           <PortfolioGrowthChart
             portfolioId={portfolio.id}
