@@ -1,47 +1,46 @@
-# Fix Sidebar Navigation + Match Reference Design
 
-## Problem 1: Navigation Not Working
+# Fix Chart Percentage Bug, Sidebar Navigation, and Design
 
-The `SidebarMenuButton` component has built-in click handling and styling via `data-active`. The current code passes `onClick` and custom className overrides that conflict with the component's internal behavior. The fix is to stop using `SidebarMenuButton` for portfolio items and use plain `div` elements instead, giving full control over click handling and styling.
+## Bug Fixes
 
-## Problem 2: Design Mismatch
+### 1. Range Gain Percentage Shows ~0.00% (Critical)
+In `PortfolioGrowthChart.tsx`, the percentage calculation returns a decimal (e.g., 0.003) instead of a percentage (e.g., 0.3). The `formatPercent()` function expects values already in percentage form.
 
-The sidebar needs to match the reference image more closely:
+**File**: `src/components/PortfolioGrowthChart.tsx`
+- Line 189: Change `const pct = baselineCB > 0 ? gain / baselineCB : 0;` to `const pct = baselineCB > 0 ? (gain / baselineCB) * 100 : 0;`
+- Line 237 (hover handler): Change `const pct = baselineCB > 0 ? gain / baselineCB : 0;` to `const pct = baselineCB > 0 ? (gain / baselineCB) * 100 : 0;`
 
-- "New portfolio" should be a nav-level text item with a "+" icon (not a blue button)
-- Floating sidebar with rounded corners and subtle blue glow from top-left corner
-- Active portfolio item has a white/cream background with dark text and rounded corners
-- Clean, minimal spacing
+### 2. Sidebar Navigation Not Working
+The `SidebarMenuButton` component has built-in `data-active` styling and click behavior that conflicts with custom overrides.
 
-## Files to Modify
+**File**: `src/components/AppSidebar.tsx`
+- Replace `SidebarMenuButton` for portfolio items with plain `div` elements that have direct `onClick` handlers
+- This gives full control over click handling and active styling
 
-### `src/components/AppSidebar.tsx`
+### 3. Sidebar Design Updates
 
-- Replace `SidebarMenuButton` for portfolio items with plain clickable `div` elements to fix navigation
-- Change "New portfolio" from a blue button to a plain nav-level item (just text with "+" icon, like "Search assets")
-- Style active portfolio item: white/cream background, dark text, rounded-lg
-- Inactive items: transparent with subtle hover
+**File**: `src/components/AppSidebar.tsx`
+- Convert "New portfolio" from a blue button to a plain nav-level item with "+" icon (matching "Search assets" style)
+- Style active portfolio item with cream/white background and dark text
+- Inactive items get subtle hover effect
 
-### `src/index.css`
+**File**: `src/index.css`
+- Add subtle blue radial gradient glow from top-left corner to `.glass-sidebar`:
+  `background: radial-gradient(ellipse at 0% 0%, rgba(0, 200, 255, 0.07) 0%, transparent 60%), var(--sidebar-glass-bg);`
 
-- Update `.glass-sidebar` to add a subtle blue radial gradient glow from the top-left corner
-- Use a pseudo-element or background gradient overlay for the glow effect:
-  - `background: radial-gradient(ellipse at top left, rgba(0, 200, 255, 0.06) 0%, transparent 50%), var(--sidebar-glass-bg)`
+## Technical Details
 
-### `src/components/ui/sidebar.tsx`
+### Percentage Fix
+The `formatPercent` function does `value.toFixed(2)%`, so it expects input like `2.5` to produce `+2.50%`. The chart was passing `0.025` which displayed as `+0.03%`. Multiplying by 100 in both the range stats emitter and the hover handler fixes both the gain/loss pill and the hover tooltip.
 
-- Ensure the floating sidebar variant applies proper margin/padding so it looks truly "floating" with space around it
+### Navigation Fix
+Portfolio items will use:
+```
+<div onClick={() => navigate(`/portfolio/${portfolio.id}`)} className={cn("cursor-pointer ...", isActive && "bg-[#f5f5f0] text-[#1a1a1a]")} />
+```
+This bypasses the `SidebarMenuButton` component entirely for portfolio list items only. Footer items (Profile, Settings, Membership) remain as `SidebarMenuButton` since they don't need active state management.
 
-## Detailed Changes
-
-### AppSidebar.tsx
-
-- "New portfolio" becomes: `<div onClick={onCreateClick} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-white/5 rounded-lg"><Plus /> New portfolio</div>`
-- Portfolio items become plain divs with direct onClick handlers instead of SidebarMenuButton
-- Active item: `bg-[#f5f5f0] text-[#1a1a1a] font-semibold rounded-lg` (cream/white pill matching reference)
-- Gain/loss text on active items uses darker green/red for contrast against white background
-
-### index.css - glass-sidebar update
-
-- Add blue glow gradient: `radial-gradient(ellipse at 0% 0%, rgba(0, 200, 255, 0.07) 0%, transparent 60%)`
-- Keep existing blur and border properties
+### Files Changed
+- `src/components/PortfolioGrowthChart.tsx` -- fix percentage calculations (2 lines)
+- `src/components/AppSidebar.tsx` -- fix navigation + redesign
+- `src/index.css` -- add blue glow to glass-sidebar
