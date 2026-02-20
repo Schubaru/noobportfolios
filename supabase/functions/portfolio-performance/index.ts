@@ -361,10 +361,14 @@ Deno.serve(async (req) => {
 
     function getCashAt(t: number): number {
       let cash = Number(portfolio!.starting_cash);
+      let bestFrom = -Infinity;
       for (const c of cashRows) {
         const from = new Date(c.effective_from).getTime();
         const to = c.effective_to ? new Date(c.effective_to).getTime() : Infinity;
-        if (from <= t && t < to) {
+        if (from <= t && t < to) return Number(c.amount); // exact range match
+        // fallback: most recent row that started at-or-before t
+        if (from <= t && from > bestFrom) {
+          bestFrom = from;
           cash = Number(c.amount);
         }
       }
