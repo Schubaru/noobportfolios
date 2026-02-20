@@ -186,7 +186,7 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     const currentUPL = (lastHoldingsPoint.hv ?? 0) - (lastHoldingsPoint.cb ?? 0);
     const gain = currentUPL - baselineUPL;
     const baselineCB = firstHoldingsPoint.cb ?? 0;
-    const pct = baselineCB > 0 ? gain / baselineCB : 0;
+    const pct = baselineCB > 0 ? (gain / baselineCB) * 100 : 0;
     onRangeStats({ gain, pct });
   }, [perfData, onRangeStats]);
 
@@ -234,7 +234,7 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
       }
       const gain = point.unrealizedPLDelta;
       const baselineCB = perfData?.points?.find(p => (p.hv ?? 0) > 0)?.cb ?? 0;
-      const pct = baselineCB > 0 ? gain / baselineCB : 0;
+      const pct = baselineCB > 0 ? (gain / baselineCB) * 100 : 0;
       onHoverChange({ portfolioValue: point.portfolioValue, gain, gainPercent: pct, isHovering: true });
     });
   }, [onHoverChange, perfData]);
