@@ -1,49 +1,56 @@
 
 
-# Consolidate Profile + Settings into a Single Settings Menu
+## Add Dollar P/L with Correctness Safeguards
 
-## What Changes
+### What Changes
 
-Merge the Profile popover contents (email display, sign out) into the Settings popover, then remove the Profile item entirely. The sidebar footer will have one entry: **Settings**.
+The P/L column cell (lines 67-76) will be updated to show dollar P/L on the first line and percentage on the second line, with a guard against division-by-zero.
 
-## Settings Popover Contents (top to bottom)
+### File: `src/components/HoldingsTable.tsx`
 
-1. **User email** -- muted, non-interactive, truncated
-2. **Divider**
-3. **Sign out** -- normal action, closes popover, signs out, navigates to `/`
-4. **Delete account** -- destructive red, opens confirmation Dialog
+**1. Add costBasis guard (line 41)**
 
-## What Gets Removed
+Replace the raw percentage calculation with a safe version:
 
-- `profileOpen` state
-- `hoverTimeoutRef` ref
-- All Profile hover helpers (`clearHoverTimeout`, `startCloseTimer`, `handleTriggerEnter/Leave`, `handleContentEnter/Leave`)
-- The entire Profile `SidebarMenuItem` + `Popover` block (lines 203-236)
-- `User` icon import (no longer used)
-
-## What Gets Updated
-
-- `handleLogout` updated to close `settingsOpen` instead of `profileOpen`
-- Route-change `useEffect` simplified to only reset `settingsOpen`
-- Cleanup `useEffect` simplified to only clear `settingsHoverRef`
-- Settings popover content expanded to include email + sign out + divider + delete account
-
-## Technical Details
-
-**Single file changed**: `src/components/AppSidebar.tsx`
-
-State after change:
-- `settingsOpen` / `setSettingsOpen` -- controls the single Settings popover
-- `deleteDialogOpen` / `setDeleteDialogOpen` -- controls the delete confirmation dialog
-- `isDeleting` -- loading state for delete action
-- `settingsHoverRef` -- hover delay ref for Settings
-
-Settings popover content structure:
 ```
-[email display - muted, select-none]
-[divider]
-[Sign out button - normal style with LogOut icon]
-[Delete account button - destructive style with Trash2 icon]
+const unrealizedPLPercent = costBasis > 0 ? (unrealizedPL / costBasis) * 100 : null;
 ```
 
-No changes to the Delete Account dialog, edge function, or any other files.
+**2. Update the P/L cell (lines 67-76)**
+
+Replace the current single-line percentage display with a two-line layout:
+
+- Line 1: Arrow icon + signed dollar amount using `formatCurrency(Math.abs(unrealizedPL))` with `+` or `-` prefix controlled by `isPositive`
+- Line 2: Percentage in parentheses, or `--` if `unrealizedPLPercent` is `null`
+
+The cell structure becomes:
+
+```tsx
+<td className="p-4 text-right">
+  <div className={`flex flex-col items-end ${isPositive ? 'text-success' : 'text-destructive'}`}>
+    <div className="flex items-center gap-1">
+      {isPositive ? <TrendingUp .../> : <TrendingDown .../>}
+      <span className="font-medium">
+        {isPositive ? '+' : '-'}{formatCurrency(Math.abs(unrealizedPL))}
+      </span>
+    </div>
+    <span className="text-xs">
+      ({unrealizedPLPercent !== null ? formatPercent(unrealizedPLPercent) : '—'})
+    </span>
+  </div>
+</td>
+```
+
+### What stays the same
+
+- All existing calculations (`currentPrice`, `positionValue`, `costBasis`, `unrealizedPL`)
+- Arrow icons, color classes, table structure, responsive behavior
+- No new columns, no layout resizing, no new dependencies
+
+### Summary of safeguards
+
+- Sign controlled in one place via `isPositive` flag
+- `formatCurrency` receives only the absolute value
+- `costBasis <= 0` renders `--` instead of `NaN%` or `Infinity%`
+- Values update on every quote refresh since they derive from `holding.currentPrice`
+
