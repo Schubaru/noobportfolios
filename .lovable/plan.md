@@ -1,81 +1,118 @@
 
 
-# Fallback Baseline When day_reference_value Is Missing
+# Add Profile Contextual Menu to Sidebar
 
-## Problem
+## Overview
 
-Portfolios without a snapshot yet have no `day_reference_value` in `value_history`, so `getTodayBaseline` returns `null`. This causes the Today card, 1D hero pill, and sidebar badge to all show "---" even during market hours.
-
-## Solution
-
-Create a single enhanced baseline function in `AppLayout` that:
-1. Prefers `day_reference_value` from the database (existing behavior)
-2. Falls back to `cash + sum(shares * previousClose)` from live quotes when the DB value is missing
-
-This enhanced function replaces `getTodayBaseline` everywhere it's passed, so all three consumers (sidebar, hero pill, Today card) automatically get the fallback.
+Replace the static "Profile" button in the sidebar footer with a controlled Popover that shows the user's email (disabled) and a Logout action. Desktop opens on hover, mobile toggles on tap. The Profile row never navigates anywhere.
 
 ## Changes
 
-### 1. AppLayout.tsx -- create enhanced baseline with fallback
+### AppSidebar.tsx (only file modified)
 
-- Destructure `getPortfolioWithQuotes` from `usePortfolioQuotes` (currently only `getMetrics` is used)
-- Create `getEffectiveTodayBaseline` callback that:
-  - Returns DB baseline if available (via existing `getTodayBaseline`)
-  - Otherwise computes `cash + sum(shares * previousClose)` from the quoted portfolio
-  - Returns `null` only if neither source is available
+**New imports:**
+- `useState`, `useRef`, `useEffect`, `useCallback` from React
+- `useLocation` from `react-router-dom`
+- `LogOut` from `lucide-react`
+- `Popover`, `PopoverTrigger`, `PopoverContent` from `@/components/ui/popover`
+- `useAuth` from `@/contexts/AuthContext`
+- `useIsMobile` from `@/hooks/use-mobile`
 
-```typescript
-const getEffectiveTodayBaseline = useCallback((portfolioId: string): number | null => {
-  const dbBaseline = getTodayBaseline(portfolioId);
-  if (typeof dbBaseline === 'number' && Number.isFinite(dbBaseline) && dbBaseline > 0) {
-    return dbBaseline;
-  }
+**State and refs:**
+- `profileOpen` / `setProfileOpen` -- controlled popover state
+- `hoverTimeout` ref -- stores the delay timer so hovering from trigger to content doesn't flicker
 
-  // Fallback: cash + sum(shares * previousClose) from live quotes
-  const pwq = getPortfolioWithQuotes(portfolioId);
-  const source = pwq?.portfolio ?? portfolios.find(p => p.id === portfolioId);
-  if (!source || source.holdings.length === 0) return null;
+**Profile row replacement (lines 120-125):**
 
-  let allHavePrevClose = true;
-  const prevCloseTotal = source.holdings.reduce((sum, h) => {
-    if (typeof h.previousClose === 'number' && h.previousClose > 0) {
-      return sum + h.shares * h.previousClose;
-    }
-    allHavePrevClose = false;
-    return sum;
-  }, 0);
+The `SidebarMenuButton` becomes a `PopoverTrigger` wrapped in a `Popover`. It does NOT navigate anywhere -- it is purely a menu trigger.
 
-  if (!allHavePrevClose) return null;
-  const fallback = source.cash + prevCloseTotal;
-  return fallback > 0 ? fallback : null;
-}, [getTodayBaseline, getPortfolioWithQuotes, portfolios]);
+```tsx
+<Popover open={profileOpen} onOpenChange={setProfileOpen}>
+  <PopoverTrigger asChild>
+    <div
+      className="flex items-center px-3 py-2 text-sm text-muted-foreground
+                 hover:text-foreground rounded-lg cursor-pointer hover:bg-white/5
+                 transition-colors"
+      onMouseEnter={() => { /* desktop: open after clearing any pending close */ }}
+      onMouseLeave={() => { /* desktop: start 150ms close timer */ }}
+    >
+      <User className="w-4 h-4 mr-2" />
+      Profile
+    </div>
+  </PopoverTrigger>
+
+  <PopoverContent
+    side="right"
+    align="end"
+    className="w-56 p-2"
+    onMouseEnter={() => { /* cancel close timer */ }}
+    onMouseLeave={() => { /* start close timer */ }}
+  >
+    {/* Email -- non-interactive */}
+    <div className="px-2 py-1.5 text-xs text-muted-foreground truncate select-none">
+      {user?.email ?? 'Not signed in'}
+    </div>
+    <div className="h-px bg-border my-1" />
+    {/* Logout */}
+    <button
+      onClick={handleLogout}
+      className="flex items-center w-full px-2 py-1.5 text-sm rounded-md
+                 hover:bg-destructive/10 text-destructive transition-colors"
+    >
+      <LogOut className="w-4 h-4 mr-2" />
+      Log out
+    </button>
+  </PopoverContent>
+</Popover>
 ```
 
-- Pass `getEffectiveTodayBaseline` instead of `getTodayBaseline` to:
-  - `AppSidebar` (prop)
-  - `Outlet` context
+**Hover logic (desktop only, guarded by `!isMobile`):**
+- `onMouseEnter` on trigger: clear any pending close timeout, set `profileOpen = true`
+- `onMouseLeave` on trigger: start a 150ms timeout to set `profileOpen = false`
+- `onMouseEnter` on content: clear timeout (keeps menu open while cursor is inside)
+- `onMouseLeave` on content: start 150ms close timeout
 
-### 2. No other files change
+**Mobile:** Standard Popover tap behavior via `onOpenChange`. Hover handlers are no-ops.
 
-- `AppSidebar`, `PerformanceSummary`, `PortfolioGrowthChart`, and `PortfolioDetail` all already consume `getTodayBaseline` -- they receive the enhanced version automatically through props/context.
+**Logout handler:**
+```tsx
+const handleLogout = async () => {
+  setProfileOpen(false);
+  await signOut();
+  navigate('/');
+};
+```
 
-## What stays the same
+**Close on route change:**
+```tsx
+const location = useLocation();
+useEffect(() => {
+  setProfileOpen(false);
+}, [location.pathname]);
+```
 
-- DB baseline is always preferred when available
-- All three consumers (sidebar badge, hero pill, Today card) use the same function, guaranteeing they match
-- 1W / 1M / ALL ranges unaffected
-- Chart hover scrubbing unaffected
-- `refetchBaselines` still works (refetches DB baselines; fallback is always recomputed from live quotes)
+**Cleanup on unmount:**
+```tsx
+useEffect(() => {
+  return () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+  };
+}, []);
+```
 
-## Edge cases
+## Safeguards confirmed
 
-- If `previousClose` is missing for any holding (quotes not yet loaded), fallback returns `null` and UI shows "---" (safe)
-- Once quotes load, the fallback becomes available and UI updates
-- Once a snapshot is taken, the DB baseline takes over permanently
+1. Profile row does NOT navigate -- it is a plain `div` acting as `PopoverTrigger`, no `onClick` navigation
+2. Close behavior:
+   - Outside click: Radix default
+   - Escape key: Radix default
+   - After Logout: explicit `setProfileOpen(false)`
+   - On route change: `useEffect` on `location.pathname`
+3. Settings and Membership rows are untouched
 
 ## Files modified
 
 | File | Change |
 |------|--------|
-| `src/layouts/AppLayout.tsx` | Destructure `getPortfolioWithQuotes`, create `getEffectiveTodayBaseline`, pass it instead of `getTodayBaseline` |
+| `src/components/AppSidebar.tsx` | Replace Profile button with Popover menu (email + logout), add hover/tap logic, close on route change |
 
