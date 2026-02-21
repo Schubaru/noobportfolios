@@ -1,5 +1,6 @@
-import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, Search, TrendingUp, TrendingDown, User, Settings, CreditCard } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Plus, Search, TrendingUp, TrendingDown, User, Settings, CreditCard, LogOut } from 'lucide-react';
 import noobLogo from '@/assets/noobportlogo.png';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
@@ -16,6 +17,9 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from '@/components/ui/sidebar';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { useAuth } from '@/contexts/AuthContext';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 interface AppSidebarProps {
@@ -28,7 +32,62 @@ interface AppSidebarProps {
 
 const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, onSearchClick }: AppSidebarProps) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id: activeId } = useParams<{ id: string }>();
+  const { user, signOut } = useAuth();
+  const isMobile = useIsMobile();
+
+  const [profileOpen, setProfileOpen] = useState(false);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const clearHoverTimeout = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+  };
+
+  const startCloseTimer = () => {
+    clearHoverTimeout();
+    hoverTimeoutRef.current = setTimeout(() => setProfileOpen(false), 150);
+  };
+
+  const handleTriggerEnter = () => {
+    if (isMobile) return;
+    clearHoverTimeout();
+    setProfileOpen(true);
+  };
+
+  const handleTriggerLeave = () => {
+    if (isMobile) return;
+    startCloseTimer();
+  };
+
+  const handleContentEnter = () => {
+    if (isMobile) return;
+    clearHoverTimeout();
+  };
+
+  const handleContentLeave = () => {
+    if (isMobile) return;
+    startCloseTimer();
+  };
+
+  const handleLogout = async () => {
+    setProfileOpen(false);
+    await signOut();
+    navigate('/');
+  };
+
+  // Close on route change
+  useEffect(() => {
+    setProfileOpen(false);
+  }, [location.pathname]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => clearHoverTimeout();
+  }, []);
 
   return (
     <Sidebar collapsible="offcanvas" className="border-r-0">
@@ -118,10 +177,37 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
         <SidebarSeparator />
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
-              <User className="w-4 h-4 mr-2" />
-              Profile
-            </SidebarMenuButton>
+            <Popover open={profileOpen} onOpenChange={setProfileOpen}>
+              <PopoverTrigger asChild>
+                <div
+                  className="flex items-center px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-lg cursor-pointer hover:bg-white/5 transition-colors"
+                  onMouseEnter={handleTriggerEnter}
+                  onMouseLeave={handleTriggerLeave}
+                >
+                  <User className="w-4 h-4 mr-2" />
+                  Profile
+                </div>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                align="end"
+                className="w-56 p-2"
+                onMouseEnter={handleContentEnter}
+                onMouseLeave={handleContentLeave}
+              >
+                <div className="px-2 py-1.5 text-xs text-muted-foreground truncate select-none">
+                  {user?.email ?? 'Not signed in'}
+                </div>
+                <div className="h-px bg-border my-1" />
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center w-full px-2 py-1.5 text-sm rounded-md hover:bg-destructive/10 text-destructive transition-colors"
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Log out
+                </button>
+              </PopoverContent>
+            </Popover>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
