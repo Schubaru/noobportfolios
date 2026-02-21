@@ -102,8 +102,7 @@ const Auth = () => {
 
         {/* Subhead */}
         <p className="text-muted-foreground text-center text-base sm:text-lg leading-relaxed mb-8 max-w-md">
-          Build a portfolio with real market prices using $10,000 in practice money.
-          <br />
+          Build a portfolio with real market prices using $10,000 in practice money.{' '}
           Learn by doing, not by losing.
         </p>
 
