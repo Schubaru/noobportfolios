@@ -12,6 +12,7 @@ interface PerformanceSummaryProps {
   cash: number;
   startingCash: number;
   todayBaseline?: number | null;
+  equityNow?: number | null;
 }
 
 interface PerformanceHeaderProps extends PerformanceSummaryProps {
@@ -121,9 +122,12 @@ export const PerformanceDetails = ({
   metrics,
   cash,
   startingCash,
-  todayBaseline
+  todayBaseline,
+  equityNow
 }: PerformanceSummaryProps) => {
-  const today = computeTodayChange(metrics.totalValue, todayBaseline);
+  const effectiveEquity = equityNow ?? metrics.totalValue;
+  const today = computeTodayChange(effectiveEquity, todayBaseline);
+  console.log('[Card] equityNow:', effectiveEquity, 'todayBaseline:', todayBaseline, 'delta:', today.delta);
   const todayDelta = today.delta;
   const todayPct = today.percent;
   const hasTodayData = todayDelta !== null;

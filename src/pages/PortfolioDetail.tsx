@@ -10,6 +10,7 @@ import PortfolioGrowthChart, { TimeRange, ChartHoverState, RangeStats } from '@/
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
+import { computeTodayChange } from '@/lib/todayChange';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
 
@@ -199,6 +200,13 @@ const PortfolioDetail = () => {
         </div>
 
         {/* Hero: Investing value + Chart */}
+        {(() => {
+          const equityNow = getPortfolioEquity(portfolio.id);
+          const heroBaseline = getTodayBaseline(portfolio.id);
+          const heroToday = computeTodayChange(equityNow ?? metrics.totalValue, heroBaseline);
+          console.log('[Hero] equityNow:', equityNow, 'todayBaseline:', heroBaseline, 'delta:', heroToday.delta);
+          return null;
+        })()}
         <div className="p-6 mb-6">
           <PerformanceHeader
             metrics={metrics}
@@ -226,7 +234,7 @@ const PortfolioDetail = () => {
 
         {/* Portfolio position */}
         <div className="mb-6">
-          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} todayBaseline={getTodayBaseline(portfolio.id)} />
+          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} todayBaseline={getTodayBaseline(portfolio.id)} equityNow={getPortfolioEquity(portfolio.id)} />
         </div>
 
         {/* Holdings */}
