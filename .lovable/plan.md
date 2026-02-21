@@ -1,118 +1,109 @@
 
 
-# Add Profile Contextual Menu to Sidebar
+# Settings Contextual Menu + Delete Account + Remove Membership
 
 ## Overview
 
-Replace the static "Profile" button in the sidebar footer with a controlled Popover that shows the user's email (disabled) and a Logout action. Desktop opens on hover, mobile toggles on tap. The Profile row never navigates anywhere.
+Three changes: remove Membership from sidebar, convert Settings to a hover/tap Popover with "Delete account", and implement safe server-side account deletion via an edge function backed by CASCADE foreign keys.
 
-## Changes
+## 1. Database Migration: Add Foreign Keys with ON DELETE CASCADE
 
-### AppSidebar.tsx (only file modified)
+Currently there are **no foreign keys** between tables. We'll add them so deleting portfolios automatically cascades to all child data, and deleting profiles is clean.
 
-**New imports:**
-- `useState`, `useRef`, `useEffect`, `useCallback` from React
-- `useLocation` from `react-router-dom`
-- `LogOut` from `lucide-react`
-- `Popover`, `PopoverTrigger`, `PopoverContent` from `@/components/ui/popover`
-- `useAuth` from `@/contexts/AuthContext`
-- `useIsMobile` from `@/hooks/use-mobile`
+```sql
+-- Portfolio-owned tables: cascade when portfolio is deleted
+ALTER TABLE holdings
+  ADD CONSTRAINT holdings_portfolio_id_fkey
+  FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE;
 
-**State and refs:**
-- `profileOpen` / `setProfileOpen` -- controlled popover state
-- `hoverTimeout` ref -- stores the delay timer so hovering from trigger to content doesn't flicker
+ALTER TABLE holdings_history
+  ADD CONSTRAINT holdings_history_portfolio_id_fkey
+  FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE;
 
-**Profile row replacement (lines 120-125):**
+ALTER TABLE cash_history
+  ADD CONSTRAINT cash_history_portfolio_id_fkey
+  FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE;
 
-The `SidebarMenuButton` becomes a `PopoverTrigger` wrapped in a `Popover`. It does NOT navigate anywhere -- it is purely a menu trigger.
+ALTER TABLE transactions
+  ADD CONSTRAINT transactions_portfolio_id_fkey
+  FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE;
 
-```tsx
-<Popover open={profileOpen} onOpenChange={setProfileOpen}>
-  <PopoverTrigger asChild>
-    <div
-      className="flex items-center px-3 py-2 text-sm text-muted-foreground
-                 hover:text-foreground rounded-lg cursor-pointer hover:bg-white/5
-                 transition-colors"
-      onMouseEnter={() => { /* desktop: open after clearing any pending close */ }}
-      onMouseLeave={() => { /* desktop: start 150ms close timer */ }}
-    >
-      <User className="w-4 h-4 mr-2" />
-      Profile
-    </div>
-  </PopoverTrigger>
+ALTER TABLE value_history
+  ADD CONSTRAINT value_history_portfolio_id_fkey
+  FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE;
 
-  <PopoverContent
-    side="right"
-    align="end"
-    className="w-56 p-2"
-    onMouseEnter={() => { /* cancel close timer */ }}
-    onMouseLeave={() => { /* start close timer */ }}
-  >
-    {/* Email -- non-interactive */}
-    <div className="px-2 py-1.5 text-xs text-muted-foreground truncate select-none">
-      {user?.email ?? 'Not signed in'}
-    </div>
-    <div className="h-px bg-border my-1" />
-    {/* Logout */}
-    <button
-      onClick={handleLogout}
-      className="flex items-center w-full px-2 py-1.5 text-sm rounded-md
-                 hover:bg-destructive/10 text-destructive transition-colors"
-    >
-      <LogOut className="w-4 h-4 mr-2" />
-      Log out
-    </button>
-  </PopoverContent>
-</Popover>
+ALTER TABLE income
+  ADD CONSTRAINT income_portfolio_id_fkey
+  FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE;
+
+ALTER TABLE dividend_history
+  ADD CONSTRAINT dividend_history_portfolio_id_fkey
+  FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE;
 ```
 
-**Hover logic (desktop only, guarded by `!isMobile`):**
-- `onMouseEnter` on trigger: clear any pending close timeout, set `profileOpen = true`
-- `onMouseLeave` on trigger: start a 150ms timeout to set `profileOpen = false`
-- `onMouseEnter` on content: clear timeout (keeps menu open while cursor is inside)
-- `onMouseLeave` on content: start 150ms close timeout
+This means the edge function only needs to delete `portfolios` (cascades all child data) and `profiles`, then delete the auth user.
 
-**Mobile:** Standard Popover tap behavior via `onOpenChange`. Hover handlers are no-ops.
+## 2. New Edge Function: `supabase/functions/delete-account/index.ts`
 
-**Logout handler:**
-```tsx
-const handleLogout = async () => {
-  setProfileOpen(false);
-  await signOut();
-  navigate('/');
-};
+**Security**: `verify_jwt = false` in config.toml (required by signing-keys system), but JWT is validated in code via `getClaims()`.
+
+The function will:
+1. Extract and validate JWT from Authorization header using `getClaims()`
+2. Get `userId` from claims
+3. Use a service-role client to:
+   - `DELETE FROM portfolios WHERE user_id = userId` (cascades all child tables)
+   - `DELETE FROM profiles WHERE user_id = userId`
+   - `supabase.auth.admin.deleteUser(userId)`
+4. Return `{ success: true }` or error
+
+## 3. Config Update: `supabase/config.toml`
+
+Add entry:
+```toml
+[functions.delete-account]
+verify_jwt = false
 ```
 
-**Close on route change:**
-```tsx
-const location = useLocation();
-useEffect(() => {
-  setProfileOpen(false);
-}, [location.pathname]);
-```
+## 4. Sidebar Changes: `src/components/AppSidebar.tsx`
 
-**Cleanup on unmount:**
-```tsx
-useEffect(() => {
-  return () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-  };
-}, []);
-```
+**Remove**: Membership `SidebarMenuItem` (lines 218-223) and `CreditCard` import.
 
-## Safeguards confirmed
+**Settings Popover** (same pattern as Profile):
+- New state: `settingsOpen`, ref: `settingsHoverRef`
+- Hover handlers (desktop only, guarded by `!isMobile`): identical pattern to Profile
+- Close on route change (added to existing `useEffect`)
+- Cleanup ref on unmount (added to existing `useEffect`)
+- Popover content: single "Delete account" button in destructive red
+- Positioning: `side={isMobile ? "top" : "right"}`
 
-1. Profile row does NOT navigate -- it is a plain `div` acting as `PopoverTrigger`, no `onClick` navigation
-2. Close behavior:
-   - Outside click: Radix default
-   - Escape key: Radix default
-   - After Logout: explicit `setProfileOpen(false)`
-   - On route change: `useEffect` on `location.pathname`
-3. Settings and Membership rows are untouched
+**Delete Account Dialog**:
+- State: `deleteDialogOpen`, `isDeleting`
+- Clicking "Delete account" in popover: closes popover, opens Dialog
+- Dialog content:
+  - Title: "Are you sure you want to delete your account?"
+  - Description: "Deleting your account will erase all of your portfolio history."
+  - Cancel button (outline) -- closes dialog
+  - Delete account button (destructive) -- disabled + Loader2 spinner while deleting
+- On confirm:
+  1. `setIsDeleting(true)`
+  2. `await supabase.functions.invoke('delete-account')`
+  3. Close dialog + popover
+  4. `await signOut()`
+  5. `navigate('/')`
 
-## Files modified
+**New imports needed**:
+- `Loader2, Trash2` from lucide-react
+- `Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter` from `@/components/ui/dialog`
+- `Button` from `@/components/ui/button`
+- `supabase` from `@/integrations/supabase/client`
+- `toast` from sonner
+
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/AppSidebar.tsx` | Replace Profile button with Popover menu (email + logout), add hover/tap logic, close on route change |
+| Database migration | Add ON DELETE CASCADE foreign keys on 7 portfolio-child tables |
+| `supabase/functions/delete-account/index.ts` | New edge function for authenticated account deletion |
+| `supabase/config.toml` | Add `[functions.delete-account]` entry |
+| `src/components/AppSidebar.tsx` | Remove Membership, add Settings Popover + Delete Account dialog |
 
