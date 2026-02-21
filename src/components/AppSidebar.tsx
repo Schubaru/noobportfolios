@@ -134,6 +134,7 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
               {portfolios.map((portfolio) => {
                 const metrics = getMetrics(portfolio.id);
                 const today = computeTodayChange(metrics?.totalValue ?? null, getTodayBaseline(portfolio.id));
+                console.log('[Sidebar]', portfolio.name, 'equityNow:', metrics?.totalValue ?? null, 'todayBaseline:', getTodayBaseline(portfolio.id), 'delta:', today.delta);
                 const todayDelta = today.delta;
                 const hasTodayData = todayDelta !== null;
                 const isActive = activeId === portfolio.id;
