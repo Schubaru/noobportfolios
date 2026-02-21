@@ -111,6 +111,24 @@
   }
 }
 
+/* Ambient background blobs */
+@keyframes ambientDrift1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-8%, 12%) scale(1.05); }
+  66% { transform: translate(5%, -6%) scale(0.97); }
+}
+
+@keyframes ambientDrift2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40% { transform: translate(10%, -8%) scale(1.06); }
+  70% { transform: translate(-5%, 5%) scale(0.95); }
+}
+
+@keyframes ambientDrift3 {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-45%, -55%) scale(1.08); }
+}
+
 @keyframes pulseGlow {
   0%, 100% {
     box-shadow: 0 0 20px -5px hsl(var(--primary) / 0.3);

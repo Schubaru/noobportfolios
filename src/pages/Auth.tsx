@@ -68,10 +68,22 @@ const Auth = () => {
       <div className="fixed inset-0 pointer-events-none" style={{
         background: 'radial-gradient(ellipse at 50% 30%, hsl(220 10% 8%) 0%, hsl(220 10% 4%) 60%, hsl(220 10% 2%) 100%)',
       }} />
-      {/* Subtle top glow */}
-      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] pointer-events-none opacity-30" style={{
-        background: 'radial-gradient(ellipse, hsl(190 100% 50% / 0.08) 0%, transparent 70%)',
-      }} />
+
+      {/* Ambient glow blobs */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+        {/* Blob 1 — cyan, top-right drift */}
+        <div className="absolute w-[600px] h-[600px] md:w-[900px] md:h-[900px] rounded-full opacity-[0.04] blur-[120px] md:blur-[160px] animate-[ambientDrift1_30s_ease-in-out_infinite] motion-reduce:animate-none"
+          style={{ background: 'hsl(190 100% 50%)', top: '-10%', right: '-10%' }}
+        />
+        {/* Blob 2 — teal, bottom-left drift */}
+        <div className="absolute w-[500px] h-[500px] md:w-[800px] md:h-[800px] rounded-full opacity-[0.035] blur-[120px] md:blur-[160px] animate-[ambientDrift2_35s_ease-in-out_infinite] motion-reduce:animate-none"
+          style={{ background: 'hsl(170 80% 45%)', bottom: '-5%', left: '-15%' }}
+        />
+        {/* Blob 3 — green accent, center drift (hidden on mobile) */}
+        <div className="hidden md:block absolute w-[700px] h-[700px] rounded-full opacity-[0.025] blur-[180px] animate-[ambientDrift3_40s_ease-in-out_infinite] motion-reduce:animate-none"
+          style={{ background: 'hsl(160 70% 40%)', top: '40%', left: '50%', transform: 'translate(-50%, -50%)' }}
+        />
+      </div>
 
       <div className="relative z-10 flex flex-col items-center px-4 pt-16 sm:pt-24 pb-12">
         {/* Brand row */}
