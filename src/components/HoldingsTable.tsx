@@ -38,7 +38,7 @@ const HoldingsTable = ({ holdings, onTrade }: HoldingsTableProps) => {
               const positionValue = currentPrice * holding.shares;
               const costBasis = holding.avgCost * holding.shares;
               const unrealizedPL = positionValue - costBasis;
-              const unrealizedPLPercent = (unrealizedPL / costBasis) * 100;
+              const unrealizedPLPercent = costBasis > 0 ? (unrealizedPL / costBasis) * 100 : null;
               const isPositive = unrealizedPL >= 0;
 
               return (
@@ -65,13 +65,20 @@ const HoldingsTable = ({ holdings, onTrade }: HoldingsTableProps) => {
                   <td className="p-4 text-right font-medium">{formatCurrency(currentPrice)}</td>
                   <td className="p-4 text-right font-medium">{formatCurrency(positionValue)}</td>
                   <td className="p-4 text-right">
-                    <div className={`flex items-center justify-end gap-1 ${isPositive ? 'text-success' : 'text-destructive'}`}>
-                      {isPositive ? (
-                        <TrendingUp className="w-3.5 h-3.5" />
-                      ) : (
-                        <TrendingDown className="w-3.5 h-3.5" />
-                      )}
-                      <span className="font-medium">{formatPercent(unrealizedPLPercent)}</span>
+                    <div className={`flex flex-col items-end ${isPositive ? 'text-success' : 'text-destructive'}`}>
+                      <div className="flex items-center gap-1">
+                        {isPositive ? (
+                          <TrendingUp className="w-3.5 h-3.5" />
+                        ) : (
+                          <TrendingDown className="w-3.5 h-3.5" />
+                        )}
+                        <span className="font-medium">
+                          {isPositive ? '+' : '−'}{formatCurrency(Math.abs(unrealizedPL))}
+                        </span>
+                      </div>
+                      <span className="text-xs">
+                        ({unrealizedPLPercent !== null ? formatPercent(unrealizedPLPercent) : '—'})
+                      </span>
                     </div>
                   </td>
                 </tr>
