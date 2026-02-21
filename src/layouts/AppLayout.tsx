@@ -10,6 +10,7 @@ import { usePortfolios } from '@/hooks/usePortfolios';
 import { usePortfolioQuotes } from '@/hooks/usePortfolioQuotes';
 import { usePortfolioTodaySummary } from '@/hooks/usePortfolioTodaySummary';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
+import { computeTodayChange } from '@/lib/todayChange';
 import { toast } from 'sonner';
 
 const AppLayout = () => {
@@ -23,37 +24,24 @@ const AppLayout = () => {
     fetchPortfolios,
   } = usePortfolios();
   const { getMetrics: getLiveMetrics, getPortfolioWithQuotes, lastUpdated: quotesLastUpdated, isStale: quotesIsStale, refresh: refreshQuotes } = usePortfolioQuotes(portfolios);
-  const { getTodayBaseline, refetchBaselines } = usePortfolioTodaySummary(portfolios.map(p => p.id));
+  const { getTodayBaseline, getEarliestTodaySnapshot, refetchBaselines } = usePortfolioTodaySummary(portfolios.map(p => p.id));
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSearchTradeOpen, setIsSearchTradeOpen] = useState(false);
   const [hasRedirected, setHasRedirected] = useState(false);
 
   const activePortfolio = portfolios.find(p => p.id === id);
 
-  // Enhanced baseline: prefer DB day_reference_value, fallback to cash + Σ(shares * previousClose)
+  // Unified baseline: day_reference_value > earliest today snapshot > null
   const getEffectiveTodayBaseline = useCallback((portfolioId: string): number | null => {
-    const dbBaseline = getTodayBaseline(portfolioId);
-    if (typeof dbBaseline === 'number' && Number.isFinite(dbBaseline) && dbBaseline > 0) {
-      return dbBaseline;
-    }
+    const { baseline } = computeTodayChange(null, getTodayBaseline(portfolioId), getEarliestTodaySnapshot(portfolioId));
+    return baseline;
+  }, [getTodayBaseline, getEarliestTodaySnapshot]);
 
-    const pwq = getPortfolioWithQuotes(portfolioId);
-    const source = pwq?.portfolio ?? portfolios.find(p => p.id === portfolioId);
-    if (!source || source.holdings.length === 0) return null;
-
-    let allHavePrevClose = true;
-    const prevCloseTotal = source.holdings.reduce((sum, h) => {
-      if (typeof h.previousClose === 'number' && h.previousClose > 0) {
-        return sum + h.shares * h.previousClose;
-      }
-      allHavePrevClose = false;
-      return sum;
-    }, 0);
-
-    if (!allHavePrevClose) return null;
-    const fallback = source.cash + prevCloseTotal;
-    return fallback > 0 ? fallback : null;
-  }, [getTodayBaseline, getPortfolioWithQuotes, portfolios]);
+  // Unified equity source for all children
+  const getPortfolioEquity = useCallback((portfolioId: string): number | null => {
+    const m = getLiveMetrics(portfolioId);
+    return m ? m.totalValue : null;
+  }, [getLiveMetrics]);
 
   // Redirect to first portfolio if on bare /portfolio route or no id
   useEffect(() => {
@@ -147,7 +135,7 @@ const AppLayout = () => {
           <div className="md:hidden sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border p-2">
             <SidebarTrigger />
           </div>
-          <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline: getEffectiveTodayBaseline, quotesLastUpdated, quotesIsStale, refreshQuotes }} />
+          <Outlet context={{ refetchBaselines, fetchPortfolios, getTodayBaseline: getEffectiveTodayBaseline, getEarliestTodaySnapshot, getPortfolioEquity, quotesLastUpdated, quotesIsStale, refreshQuotes }} />
         </main>
       </div>
 

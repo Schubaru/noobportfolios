@@ -17,9 +17,11 @@ const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getPortfolio, deletePortfolio, fetchPortfolios, isLoading: portfoliosLoading } = usePortfolios();
-  const { refetchBaselines, getTodayBaseline, quotesLastUpdated, quotesIsStale, refreshQuotes } = useOutletContext<{
+  const { refetchBaselines, getTodayBaseline, getEarliestTodaySnapshot, getPortfolioEquity, quotesLastUpdated, quotesIsStale, refreshQuotes } = useOutletContext<{
     refetchBaselines: () => Promise<void>;
     getTodayBaseline: (portfolioId: string) => number | null;
+    getEarliestTodaySnapshot: (portfolioId: string) => number | null;
+    getPortfolioEquity: (portfolioId: string) => number | null;
     quotesLastUpdated: Date | null;
     quotesIsStale: boolean;
     refreshQuotes: () => Promise<void>;
@@ -218,6 +220,7 @@ const PortfolioDetail = () => {
             onHoverChange={handleHoverChange}
             onRangeStats={setRangeStats}
             dayReferenceValue={getTodayBaseline(portfolio.id)}
+            earliestTodaySnapshot={getEarliestTodaySnapshot(portfolio.id)}
           />
         </div>
 
