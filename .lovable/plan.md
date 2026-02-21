@@ -1,61 +1,49 @@
 
 
-# Fix: Unify equityNow + todayBaseline Inputs for "Today"
+# Consolidate Profile + Settings into a Single Settings Menu
 
-## Root Cause
+## What Changes
 
-The baseline source (`getEffectiveTodayBaseline`) is already shared correctly. The problem is the **equity input**:
+Merge the Profile popover contents (email display, sign out) into the Settings popover, then remove the Profile item entirely. The sidebar footer will have one entry: **Settings**.
 
-- **Sidebar** uses `metrics.totalValue` from `usePortfolioQuotes` (AppLayout hook)
-- **Card** uses `metrics.totalValue` from PortfolioDetail's **own** local `fetchMultipleQuotes` call -- a completely separate quote fetch that can return different prices
-- These two equity values diverge, causing `computeTodayChange()` to return different results (or null vs a value)
+## Settings Popover Contents (top to bottom)
 
-## Fix (3 files, logic-only)
+1. **User email** -- muted, non-interactive, truncated
+2. **Divider**
+3. **Sign out** -- normal action, closes popover, signs out, navigates to `/`
+4. **Delete account** -- destructive red, opens confirmation Dialog
 
-### 1. `src/pages/PortfolioDetail.tsx`
+## What Gets Removed
 
-- Read `getPortfolioEquity` from Outlet context (already exposed by AppLayout)
-- Compute `equityNow = getPortfolioEquity(portfolio.id)` once
-- Pass `equityNow` to `PerformanceDetails` as a new prop
-- Pass `equityNow` to the chart's `onRangeStats` calculation baseline (for 1D hero consistency)
-- Add debug log: `console.log('[Hero] equityNow:', equityNow, 'todayBaseline:', getTodayBaseline(portfolio.id))`
+- `profileOpen` state
+- `hoverTimeoutRef` ref
+- All Profile hover helpers (`clearHoverTimeout`, `startCloseTimer`, `handleTriggerEnter/Leave`, `handleContentEnter/Leave`)
+- The entire Profile `SidebarMenuItem` + `Popover` block (lines 203-236)
+- `User` icon import (no longer used)
 
-### 2. `src/components/PerformanceSummary.tsx`
+## What Gets Updated
 
-- Add optional `equityNow?: number | null` prop to `PerformanceSummaryProps`
-- In `PerformanceDetails`, use `equityNow ?? metrics.totalValue` as the value passed to `computeTodayChange()`
-- This way the card uses the same quote-refreshed equity as the sidebar
-- Add debug log: `console.log('[Card] equityNow:', effectiveEquity, 'todayBaseline:', todayBaseline, 'delta:', today.delta)`
+- `handleLogout` updated to close `settingsOpen` instead of `profileOpen`
+- Route-change `useEffect` simplified to only reset `settingsOpen`
+- Cleanup `useEffect` simplified to only clear `settingsHoverRef`
+- Settings popover content expanded to include email + sign out + divider + delete account
 
-### 3. `src/components/AppSidebar.tsx`
+## Technical Details
 
-- Add debug log (already partially there from previous work): `console.log('[Sidebar]', portfolio.name, 'equityNow:', metrics?.totalValue, 'todayBaseline:', getTodayBaseline(portfolio.id), 'delta:', today.delta)`
-- No logic change needed -- sidebar already uses `metrics?.totalValue` from the shared `getMetrics()` which sources from `usePortfolioQuotes`
+**Single file changed**: `src/components/AppSidebar.tsx`
 
-## Data Flow After Fix
+State after change:
+- `settingsOpen` / `setSettingsOpen` -- controls the single Settings popover
+- `deleteDialogOpen` / `setDeleteDialogOpen` -- controls the delete confirmation dialog
+- `isDeleting` -- loading state for delete action
+- `settingsHoverRef` -- hover delay ref for Settings
 
-```text
-AppLayout
-  usePortfolioQuotes -> getLiveMetrics(id).totalValue
-                          |
-          +---------------+---------------+
-          |               |               |
-      getMetrics()   getPortfolioEquity() |
-          |               |               |
-      Sidebar         PortfolioDetail     |
-      (badge)         passes to:          |
-                        - PerformanceDetails (card)
-                        - debug log (hero)
+Settings popover content structure:
+```
+[email display - muted, select-none]
+[divider]
+[Sign out button - normal style with LogOut icon]
+[Delete account button - destructive style with Trash2 icon]
 ```
 
-All three consumers now use the same `usePortfolioQuotes`-derived equity value.
-
-## What Does NOT Change
-
-- No UI / styling changes
-- No database or edge function changes
-- Sidebar logic unchanged (already correct)
-- Chart's own internal gain/loss calculation unchanged
-- `computeTodayChange()` utility unchanged
-- Baseline source unchanged
-
+No changes to the Delete Account dialog, edge function, or any other files.

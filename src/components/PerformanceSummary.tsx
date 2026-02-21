@@ -2,7 +2,6 @@ import { TrendingUp, TrendingDown, DollarSign, Wallet, Activity, Loader2 } from 
 import { formatCurrency, formatPercent } from '@/lib/portfolio';
 import { PortfolioMetrics } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { computeTodayChange } from '@/lib/todayChange';
 import { Button } from '@/components/ui/button';
 import { TimeRange } from '@/components/PortfolioGrowthChart';
 import { getMarketStatusLabel } from '@/lib/marketHours';
@@ -12,7 +11,6 @@ interface PerformanceSummaryProps {
   cash: number;
   startingCash: number;
   todayBaseline?: number | null;
-  equityNow?: number | null;
 }
 
 interface PerformanceHeaderProps extends PerformanceSummaryProps {
@@ -122,14 +120,13 @@ export const PerformanceDetails = ({
   metrics,
   cash,
   startingCash,
-  todayBaseline,
-  equityNow
+  todayBaseline
 }: PerformanceSummaryProps) => {
-  const effectiveEquity = equityNow ?? metrics.totalValue;
-  const today = computeTodayChange(effectiveEquity, todayBaseline);
-  console.log('[Card] equityNow:', effectiveEquity, 'todayBaseline:', todayBaseline, 'delta:', today.delta);
-  const todayDelta = today.delta;
-  const todayPct = today.percent;
+  const hasTodayBaseline = typeof todayBaseline === 'number'
+    && Number.isFinite(todayBaseline) && todayBaseline > 0;
+  const todayDelta = hasTodayBaseline ? metrics.totalValue - todayBaseline! : null;
+  const todayPct = hasTodayBaseline && todayBaseline! > 0
+    ? (todayDelta! / todayBaseline!) * 100 : null;
   const hasTodayData = todayDelta !== null;
   const isTodayPositive = todayDelta !== null && todayDelta >= 0;
 

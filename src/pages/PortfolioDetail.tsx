@@ -10,7 +10,6 @@ import PortfolioGrowthChart, { TimeRange, ChartHoverState, RangeStats } from '@/
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { calculatePortfolioMetrics } from '@/lib/portfolio';
 import { fetchMultipleQuotes } from '@/lib/finnhub';
-import { computeTodayChange } from '@/lib/todayChange';
 import { Portfolio, PortfolioMetrics, Transaction, Holding } from '@/lib/types';
 import { formatCurrency, formatShares } from '@/lib/portfolio';
 
@@ -18,11 +17,9 @@ const PortfolioDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getPortfolio, deletePortfolio, fetchPortfolios, isLoading: portfoliosLoading } = usePortfolios();
-  const { refetchBaselines, getTodayBaseline, getEarliestTodaySnapshot, getPortfolioEquity, quotesLastUpdated, quotesIsStale, refreshQuotes } = useOutletContext<{
+  const { refetchBaselines, getTodayBaseline, quotesLastUpdated, quotesIsStale, refreshQuotes } = useOutletContext<{
     refetchBaselines: () => Promise<void>;
     getTodayBaseline: (portfolioId: string) => number | null;
-    getEarliestTodaySnapshot: (portfolioId: string) => number | null;
-    getPortfolioEquity: (portfolioId: string) => number | null;
     quotesLastUpdated: Date | null;
     quotesIsStale: boolean;
     refreshQuotes: () => Promise<void>;
@@ -200,13 +197,6 @@ const PortfolioDetail = () => {
         </div>
 
         {/* Hero: Investing value + Chart */}
-        {(() => {
-          const equityNow = getPortfolioEquity(portfolio.id);
-          const heroBaseline = getTodayBaseline(portfolio.id);
-          const heroToday = computeTodayChange(equityNow ?? metrics.totalValue, heroBaseline);
-          console.log('[Hero] equityNow:', equityNow, 'todayBaseline:', heroBaseline, 'delta:', heroToday.delta);
-          return null;
-        })()}
         <div className="p-6 mb-6">
           <PerformanceHeader
             metrics={metrics}
@@ -228,13 +218,12 @@ const PortfolioDetail = () => {
             onHoverChange={handleHoverChange}
             onRangeStats={setRangeStats}
             dayReferenceValue={getTodayBaseline(portfolio.id)}
-            earliestTodaySnapshot={getEarliestTodaySnapshot(portfolio.id)}
           />
         </div>
 
         {/* Portfolio position */}
         <div className="mb-6">
-          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} todayBaseline={getTodayBaseline(portfolio.id)} equityNow={getPortfolioEquity(portfolio.id)} />
+          <PerformanceDetails metrics={metrics} cash={portfolio.cash} startingCash={portfolio.startingCash} todayBaseline={getTodayBaseline(portfolio.id)} />
         </div>
 
         {/* Holdings */}

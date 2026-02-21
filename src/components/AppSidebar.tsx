@@ -24,7 +24,6 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { computeTodayChange } from '@/lib/todayChange';
 
 interface AppSidebarProps {
   portfolios: Portfolio[];
@@ -133,10 +132,10 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
             <SidebarMenu>
               {portfolios.map((portfolio) => {
                 const metrics = getMetrics(portfolio.id);
-                const today = computeTodayChange(metrics?.totalValue ?? null, getTodayBaseline(portfolio.id));
-                console.log('[Sidebar]', portfolio.name, 'equityNow:', metrics?.totalValue ?? null, 'todayBaseline:', getTodayBaseline(portfolio.id), 'delta:', today.delta);
-                const todayDelta = today.delta;
-                const hasTodayData = todayDelta !== null;
+                const equityNow = metrics?.totalValue ?? null;
+                const baseline = getTodayBaseline(portfolio.id);
+                const hasTodayData = equityNow !== null && baseline !== null && baseline > 0;
+                const todayDelta = hasTodayData ? equityNow! - baseline! : null;
                 const isActive = activeId === portfolio.id;
                 const isPositive = todayDelta !== null ? todayDelta >= 0 : true;
 

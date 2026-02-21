@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency } from '@/lib/portfolio';
-import { computeTodayChange } from '@/lib/todayChange';
 
 export type TimeRange = '1D' | '1W' | '1M' | 'ALL';
 
@@ -45,7 +44,6 @@ interface PortfolioGrowthChartProps {
   onHoverChange?: (state: ChartHoverState | null) => void;
   onRangeStats?: (stats: RangeStats) => void;
   dayReferenceValue?: number | null;
-  earliestTodaySnapshot?: number | null;
 }
 
 const MIN_FETCH_INTERVAL_MS = 15_000;
@@ -87,7 +85,7 @@ function CustomTooltip({ active, payload, startEquity }: any) {
   );
 }
 
-const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverChange, onRangeStats, dayReferenceValue, earliestTodaySnapshot }: PortfolioGrowthChartProps) => {
+const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverChange, onRangeStats, dayReferenceValue }: PortfolioGrowthChartProps) => {
   const [perfData, setPerfData] = useState<PerformanceResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const isHoveringRef = useRef(false);
@@ -132,15 +130,19 @@ const PortfolioGrowthChart = ({ portfolioId, selectedRange, refreshKey, onHoverC
     }));
   }, [perfData]);
 
-  // Baseline for gain calc — 1D uses unified baseline priority
+  // Baseline for gain calc — 1D uses day_reference_value (previous close equity)
   const startEquity = useMemo(() => {
     if (chartData.length === 0) return 0;
-    if (selectedRange === '1D') {
-      const { baseline } = computeTodayChange(null, dayReferenceValue, earliestTodaySnapshot);
-      return baseline ?? chartData[0].equity;
+    if (
+      selectedRange === '1D' &&
+      typeof dayReferenceValue === 'number' &&
+      Number.isFinite(dayReferenceValue) &&
+      dayReferenceValue > 0
+    ) {
+      return dayReferenceValue;
     }
     return chartData[0].equity;
-  }, [chartData, selectedRange, dayReferenceValue, earliestTodaySnapshot]);
+  }, [chartData, selectedRange, dayReferenceValue]);
 
   // Emit range stats whenever chart data changes
   useEffect(() => {
