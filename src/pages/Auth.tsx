@@ -120,7 +120,7 @@ const Auth = () => {
             <form onSubmit={handleSignIn} className="space-y-3">
               <Input
                 type="email"
-                placeholder="@username"
+                placeholder="Email address"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
                 required
@@ -150,7 +150,7 @@ const Auth = () => {
             <form onSubmit={handleSignUp} className="space-y-3">
               <Input
                 type="email"
-                placeholder="@username"
+                placeholder="Email address"
                 value={signupEmail}
                 onChange={(e) => setSignupEmail(e.target.value)}
                 required
