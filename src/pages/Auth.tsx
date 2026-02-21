@@ -58,7 +58,7 @@ const Auth = () => {
 
   const features = [
   { icon: UserRound, title: 'Sign up', desc: 'Create an account with your email.' },
-  { icon: ArrowLeftRight, title: 'Start Trading', desc: 'Add holdings to your portfolio.' },
+  { icon: ArrowLeftRight, title: 'Start trading', desc: 'Add holdings to your portfolio.' },
   { icon: TrendingUp, title: 'Watch your portfolio grow', desc: "Track your portfolio's performance with real-time market data" }];
 
 
