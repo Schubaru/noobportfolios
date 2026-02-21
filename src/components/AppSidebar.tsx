@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Plus, Search, TrendingUp, TrendingDown, User, Settings, CreditCard, LogOut } from 'lucide-react';
+import { Plus, Search, TrendingUp, TrendingDown, User, Settings, LogOut, Trash2, Loader2 } from 'lucide-react';
 import noobLogo from '@/assets/noobportlogo.png';
 import { Portfolio, PortfolioMetrics } from '@/lib/types';
 import { formatCurrency } from '@/lib/portfolio';
@@ -13,13 +13,16 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
 } from '@/components/ui/sidebar';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 interface AppSidebarProps {
@@ -38,40 +41,43 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
   const isMobile = useIsMobile();
 
   const [profileOpen, setProfileOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const settingsHoverRef = useRef<NodeJS.Timeout | null>(null);
 
+  // --- Profile hover helpers ---
   const clearHoverTimeout = () => {
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
       hoverTimeoutRef.current = null;
     }
   };
-
   const startCloseTimer = () => {
     clearHoverTimeout();
     hoverTimeoutRef.current = setTimeout(() => setProfileOpen(false), 150);
   };
+  const handleTriggerEnter = () => { if (isMobile) return; clearHoverTimeout(); setProfileOpen(true); };
+  const handleTriggerLeave = () => { if (isMobile) return; startCloseTimer(); };
+  const handleContentEnter = () => { if (isMobile) return; clearHoverTimeout(); };
+  const handleContentLeave = () => { if (isMobile) return; startCloseTimer(); };
 
-  const handleTriggerEnter = () => {
-    if (isMobile) return;
-    clearHoverTimeout();
-    setProfileOpen(true);
+  // --- Settings hover helpers ---
+  const clearSettingsHover = () => {
+    if (settingsHoverRef.current) {
+      clearTimeout(settingsHoverRef.current);
+      settingsHoverRef.current = null;
+    }
   };
-
-  const handleTriggerLeave = () => {
-    if (isMobile) return;
-    startCloseTimer();
+  const startSettingsClose = () => {
+    clearSettingsHover();
+    settingsHoverRef.current = setTimeout(() => setSettingsOpen(false), 150);
   };
-
-  const handleContentEnter = () => {
-    if (isMobile) return;
-    clearHoverTimeout();
-  };
-
-  const handleContentLeave = () => {
-    if (isMobile) return;
-    startCloseTimer();
-  };
+  const handleSettingsTriggerEnter = () => { if (isMobile) return; clearSettingsHover(); setSettingsOpen(true); };
+  const handleSettingsTriggerLeave = () => { if (isMobile) return; startSettingsClose(); };
+  const handleSettingsContentEnter = () => { if (isMobile) return; clearSettingsHover(); };
+  const handleSettingsContentLeave = () => { if (isMobile) return; startSettingsClose(); };
 
   const handleLogout = async () => {
     setProfileOpen(false);
@@ -79,20 +85,40 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
     navigate('/');
   };
 
-  // Close on route change
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    try {
+      const { error } = await supabase.functions.invoke('delete-account');
+      if (error) throw error;
+      setDeleteDialogOpen(false);
+      setSettingsOpen(false);
+      await signOut();
+      navigate('/');
+    } catch (err: any) {
+      console.error('Delete account error:', err);
+      toast.error('Failed to delete account. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Close popovers on route change
   useEffect(() => {
     setProfileOpen(false);
+    setSettingsOpen(false);
   }, [location.pathname]);
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => clearHoverTimeout();
+    return () => {
+      clearHoverTimeout();
+      clearSettingsHover();
+    };
   }, []);
 
   return (
     <Sidebar collapsible="offcanvas" className="border-r-0">
       <SidebarHeader className="p-4">
-        {/* Brand */}
         <div className="flex items-center gap-3 mb-4">
           <img src={noobLogo} alt="N00B Portfolios" className="w-9 h-9 rounded-xl" />
           <div>
@@ -103,7 +129,6 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
           </div>
         </div>
 
-        {/* New portfolio */}
         <div
           onClick={onCreateClick}
           className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-muted-foreground text-sm cursor-pointer hover:bg-white/5 transition-colors"
@@ -112,7 +137,6 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
           New portfolio
         </div>
 
-        {/* Search placeholder */}
         <div
           onClick={onSearchClick}
           className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-muted-foreground text-sm cursor-pointer hover:bg-white/5 transition-colors"
@@ -176,6 +200,7 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
       <SidebarFooter className="p-2">
         <SidebarSeparator />
         <SidebarMenu>
+          {/* Profile popover */}
           <SidebarMenuItem>
             <Popover open={profileOpen} onOpenChange={setProfileOpen}>
               <PopoverTrigger asChild>
@@ -189,7 +214,7 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
                 </div>
               </PopoverTrigger>
               <PopoverContent
-                side="right"
+                side={isMobile ? "top" : "right"}
                 align="end"
                 className="w-56 p-2"
                 onMouseEnter={handleContentEnter}
@@ -209,20 +234,63 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
               </PopoverContent>
             </Popover>
           </SidebarMenuItem>
+
+          {/* Settings popover */}
           <SidebarMenuItem>
-            <SidebarMenuButton className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
-              <Settings className="w-4 h-4 mr-2" />
-              Settings
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
-              <CreditCard className="w-4 h-4 mr-2" />
-              Membership
-            </SidebarMenuButton>
+            <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <PopoverTrigger asChild>
+                <div
+                  className="flex items-center px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-lg cursor-pointer hover:bg-white/5 transition-colors"
+                  onMouseEnter={handleSettingsTriggerEnter}
+                  onMouseLeave={handleSettingsTriggerLeave}
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  Settings
+                </div>
+              </PopoverTrigger>
+              <PopoverContent
+                side={isMobile ? "top" : "right"}
+                align="end"
+                className="w-56 p-2"
+                onMouseEnter={handleSettingsContentEnter}
+                onMouseLeave={handleSettingsContentLeave}
+              >
+                <button
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setDeleteDialogOpen(true);
+                  }}
+                  className="flex items-center w-full px-2 py-1.5 text-sm rounded-md hover:bg-destructive/10 text-destructive transition-colors"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete account
+                </button>
+              </PopoverContent>
+            </Popover>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+
+      {/* Delete account confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Are you sure you want to delete your account?</DialogTitle>
+            <DialogDescription>
+              Deleting your account will erase all of your portfolio history.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteAccount} disabled={isDeleting}>
+              {isDeleting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Delete account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   );
 };
