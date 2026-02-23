@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -235,7 +235,7 @@ const Auth = () => {
           <span>© {new Date().getFullYear()} N00B Labs®</span>
           <div className="flex gap-5">
             <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
-            <a href="#" className="hover:text-foreground transition-colors">Terms</a>
+            <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <a className="hover:text-foreground transition-colors" href="https://x.com/N00BPortfolios">Follow on X </a>
           </div>
         </footer>
