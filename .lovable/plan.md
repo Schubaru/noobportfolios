@@ -1,26 +1,25 @@
 
 
-## Add Terms of Service Page
+## Add Privacy Policy Page
 
 ### Changes
 
-**1. New file: `src/pages/Terms.tsx`**
+**1. New file: `src/pages/Privacy.tsx`**
 
-A standalone page with the full Terms of Service content. Styled with a centered container (max-w-3xl), matching the site's dark theme typography. Includes a back link to `/auth`. No auth required, no layout wrapper.
+A standalone page mirroring the structure of `src/pages/Terms.tsx`. Same centered container (`max-w-[720px]`), same heading/section styling, same back link to `/auth`. Contains all 9 sections of the provided privacy policy text. Effective date set to February 23, 2026.
 
 **2. Update: `src/App.tsx`**
 
-Add a single public route `/terms` above the catch-all, importing the new Terms page.
+Add a single public route `/privacy` next to the existing `/terms` route, importing the new Privacy component.
 
 **3. Update: `src/pages/Auth.tsx`**
 
-Change the footer "Terms" link from `href="#"` to a React Router `<Link to="/terms">` so it navigates within the app. This requires importing `Link` from `react-router-dom` (already imported in the file via `useNavigate`).
+Change the footer "Privacy" link from `<a href="#">` to `<Link to="/privacy">` for in-app navigation.
 
 ### Technical Details
 
-- **Route**: `/terms` -- public, no `ProtectedRoute` wrapper
-- **Footer link**: Replace `<a href="#">Terms</a>` with `<Link to="/terms">Terms</Link>` using React Router
-- **Page styling**: `min-h-screen bg-background text-foreground`, centered content column with `max-w-[720px]`, prose-like spacing using Tailwind classes (`space-y-6`, `leading-relaxed`)
-- **Effective date**: Set to February 23, 2026 (current date)
-- No new dependencies, global state, or layout changes
+- Route `/privacy` is public (no `ProtectedRoute` wrapper), same as `/terms`
+- Page component follows the exact same pattern as `Terms.tsx`: `min-h-screen bg-background text-foreground`, `max-w-[720px]` container, `space-y-8` sections, `ArrowLeft` back link
+- Footer update: swap `<a href="#">Privacy</a>` to `<Link to="/privacy">Privacy</Link>` (Link is already imported in Auth.tsx)
+- No new dependencies, no layout or state changes
 
