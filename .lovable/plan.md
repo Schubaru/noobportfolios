@@ -1,56 +1,26 @@
 
 
-## Add Dollar P/L with Correctness Safeguards
+## Add Terms of Service Page
 
-### What Changes
+### Changes
 
-The P/L column cell (lines 67-76) will be updated to show dollar P/L on the first line and percentage on the second line, with a guard against division-by-zero.
+**1. New file: `src/pages/Terms.tsx`**
 
-### File: `src/components/HoldingsTable.tsx`
+A standalone page with the full Terms of Service content. Styled with a centered container (max-w-3xl), matching the site's dark theme typography. Includes a back link to `/auth`. No auth required, no layout wrapper.
 
-**1. Add costBasis guard (line 41)**
+**2. Update: `src/App.tsx`**
 
-Replace the raw percentage calculation with a safe version:
+Add a single public route `/terms` above the catch-all, importing the new Terms page.
 
-```
-const unrealizedPLPercent = costBasis > 0 ? (unrealizedPL / costBasis) * 100 : null;
-```
+**3. Update: `src/pages/Auth.tsx`**
 
-**2. Update the P/L cell (lines 67-76)**
+Change the footer "Terms" link from `href="#"` to a React Router `<Link to="/terms">` so it navigates within the app. This requires importing `Link` from `react-router-dom` (already imported in the file via `useNavigate`).
 
-Replace the current single-line percentage display with a two-line layout:
+### Technical Details
 
-- Line 1: Arrow icon + signed dollar amount using `formatCurrency(Math.abs(unrealizedPL))` with `+` or `-` prefix controlled by `isPositive`
-- Line 2: Percentage in parentheses, or `--` if `unrealizedPLPercent` is `null`
-
-The cell structure becomes:
-
-```tsx
-<td className="p-4 text-right">
-  <div className={`flex flex-col items-end ${isPositive ? 'text-success' : 'text-destructive'}`}>
-    <div className="flex items-center gap-1">
-      {isPositive ? <TrendingUp .../> : <TrendingDown .../>}
-      <span className="font-medium">
-        {isPositive ? '+' : '-'}{formatCurrency(Math.abs(unrealizedPL))}
-      </span>
-    </div>
-    <span className="text-xs">
-      ({unrealizedPLPercent !== null ? formatPercent(unrealizedPLPercent) : '—'})
-    </span>
-  </div>
-</td>
-```
-
-### What stays the same
-
-- All existing calculations (`currentPrice`, `positionValue`, `costBasis`, `unrealizedPL`)
-- Arrow icons, color classes, table structure, responsive behavior
-- No new columns, no layout resizing, no new dependencies
-
-### Summary of safeguards
-
-- Sign controlled in one place via `isPositive` flag
-- `formatCurrency` receives only the absolute value
-- `costBasis <= 0` renders `--` instead of `NaN%` or `Infinity%`
-- Values update on every quote refresh since they derive from `holding.currentPrice`
+- **Route**: `/terms` -- public, no `ProtectedRoute` wrapper
+- **Footer link**: Replace `<a href="#">Terms</a>` with `<Link to="/terms">Terms</Link>` using React Router
+- **Page styling**: `min-h-screen bg-background text-foreground`, centered content column with `max-w-[720px]`, prose-like spacing using Tailwind classes (`space-y-6`, `leading-relaxed`)
+- **Effective date**: Set to February 23, 2026 (current date)
+- No new dependencies, global state, or layout changes
 
