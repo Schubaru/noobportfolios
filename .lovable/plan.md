@@ -1,25 +1,17 @@
 
+## Update "Follow on X" link to open in new tab
 
-## Add Privacy Policy Page
+The user wants the "Follow on X" link to open in a new tab since it leads to an external site. I will update the link in the authentication page footer.
 
 ### Changes
 
-**1. New file: `src/pages/Privacy.tsx`**
-
-A standalone page mirroring the structure of `src/pages/Terms.tsx`. Same centered container (`max-w-[720px]`), same heading/section styling, same back link to `/auth`. Contains all 9 sections of the provided privacy policy text. Effective date set to February 23, 2026.
-
-**2. Update: `src/App.tsx`**
-
-Add a single public route `/privacy` next to the existing `/terms` route, importing the new Privacy component.
-
-**3. Update: `src/pages/Auth.tsx`**
-
-Change the footer "Privacy" link from `<a href="#">` to `<Link to="/privacy">` for in-app navigation.
+**1. Update `src/pages/Auth.tsx`**
+- Find the "Follow on X" anchor tag in the footer.
+- Add `target="_blank"` to open in a new tab.
+- Add `rel="noopener noreferrer"` for security best practices when using `target="_blank"`.
 
 ### Technical Details
-
-- Route `/privacy` is public (no `ProtectedRoute` wrapper), same as `/terms`
-- Page component follows the exact same pattern as `Terms.tsx`: `min-h-screen bg-background text-foreground`, `max-w-[720px]` container, `space-y-8` sections, `ArrowLeft` back link
-- Footer update: swap `<a href="#">Privacy</a>` to `<Link to="/privacy">Privacy</Link>` (Link is already imported in Auth.tsx)
-- No new dependencies, no layout or state changes
-
+- File: `src/pages/Auth.tsx`
+- Component: `Auth`
+- Location: Footer section, line 239.
+- Attributes to add: `target="_blank"`, `rel="noopener noreferrer"`.
