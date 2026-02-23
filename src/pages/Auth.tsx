@@ -234,7 +234,7 @@ const Auth = () => {
         <footer className="w-full max-w-3xl border-t border-border/30 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
           <span>© {new Date().getFullYear()} N00B Labs®</span>
           <div className="flex gap-5">
-            <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
+            <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <a className="hover:text-foreground transition-colors" href="https://x.com/N00BPortfolios">Follow on X </a>
           </div>
