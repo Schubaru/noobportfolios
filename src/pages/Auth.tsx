@@ -232,7 +232,7 @@ const Auth = () => {
 
         {/* Footer */}
         <footer className="w-full max-w-3xl border-t border-border/30 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>© {new Date().getFullYear()} N00B Labs</span>
+          <span>© {new Date().getFullYear()} N00B Labs®</span>
           <div className="flex gap-5">
             <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
             <a href="#" className="hover:text-foreground transition-colors">Terms</a>
