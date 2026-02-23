@@ -236,7 +236,7 @@ const Auth = () => {
           <div className="flex gap-5">
             <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
             <a href="#" className="hover:text-foreground transition-colors">Terms</a>
-            <a href="#" className="hover:text-foreground transition-colors">Contact</a>
+            <a className="hover:text-foreground transition-colors" href="https://x.com/N00BPortfolios">Follow on X </a>
           </div>
         </footer>
       </div>
