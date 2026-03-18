@@ -209,7 +209,7 @@ const Auth = () => {
         </div>
 
         {/* Feature cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl mb-16">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-5xl mb-16">
           {features.map(({ icon: Icon, title, desc }) => (
             <div key={title} className="flex flex-col items-center text-center px-6 py-8 rounded-2xl border border-border/50 bg-card/60">
               <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center mb-4">
