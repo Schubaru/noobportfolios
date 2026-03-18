@@ -234,6 +234,18 @@ const Auth = () => {
           )}
         </div>
 
+        {/* How It Works */}
+        <HowItWorks />
+
+        {/* Why N00B Portfolios */}
+        <WhyNoobPortfolios />
+
+        {/* See It in Action */}
+        <SeeItInAction />
+
+        {/* CTA Reinforcement */}
+        <CtaReinforcement onCtaClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setIsLogin(false); }} />
+
         {/* Footer */}
         <footer className="w-full max-w-3xl border-t border-border/30 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
           <span>© {new Date().getFullYear()} N00B Labs®</span>
