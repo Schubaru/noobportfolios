@@ -219,11 +219,8 @@ const Auth = () => {
           ))}
         </div>
 
-        {/* How It Works */}
-        <HowItWorks />
 
-        {/* Why N00B Portfolios */}
-        <WhyNoobPortfolios />
+
 
         {/* See It in Action */}
         <SeeItInAction />
