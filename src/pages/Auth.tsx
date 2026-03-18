@@ -147,10 +147,10 @@ const Auth = () => {
             <div className="absolute inset-0 -inset-x-8 -inset-y-8 rounded-3xl pointer-events-none" style={{
               background: 'radial-gradient(ellipse at 50% 60%, hsl(190 100% 50% / 0.07) 0%, transparent 70%)'
             }} />
-            <img
-              src={teaserImg}
-              alt="N00B Portfolios app preview"
-              className="relative w-full rounded-2xl shadow-2xl shadow-black/40" />
+            
+
+
+            
             
           </div>
         </section>
