@@ -18,8 +18,8 @@ export const usePortfolioQuotes = (portfolios: Portfolio[]) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isStale, setIsStale] = useState(false);
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const staleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPageVisibleRef = useRef(!document.hidden);
   const currentIntervalMsRef = useRef(15_000);
 
