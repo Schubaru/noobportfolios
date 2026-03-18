@@ -6,6 +6,10 @@ import { toast } from 'sonner';
 import { Loader2, UserRound, ArrowLeftRight, TrendingUp } from 'lucide-react';
 import logo from '@/assets/noobportlogo.png';
 import teaserImg from '@/assets/teaser.png';
+import HowItWorks from '@/components/landing/HowItWorks';
+import WhyNoobPortfolios from '@/components/landing/WhyNoobPortfolios';
+import SeeItInAction from '@/components/landing/SeeItInAction';
+import CtaReinforcement from '@/components/landing/CtaReinforcement';
 
 const Auth = () => {
   const { user, signIn, signUp } = useAuth();
@@ -229,6 +233,18 @@ const Auth = () => {
             </div>
           )}
         </div>
+
+        {/* How It Works */}
+        <HowItWorks />
+
+        {/* Why N00B Portfolios */}
+        <WhyNoobPortfolios />
+
+        {/* See It in Action */}
+        <SeeItInAction />
+
+        {/* CTA Reinforcement */}
+        <CtaReinforcement onCtaClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setIsLogin(false); }} />
 
         {/* Footer */}
         <footer className="w-full max-w-3xl border-t border-border/30 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
