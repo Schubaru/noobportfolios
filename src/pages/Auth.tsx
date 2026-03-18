@@ -6,8 +6,6 @@ import { toast } from 'sonner';
 import { Loader2, UserRound, ArrowLeftRight, TrendingUp } from 'lucide-react';
 import logo from '@/assets/noobportlogo.png';
 import teaserImg from '@/assets/teaser.png';
-import HowItWorks from '@/components/landing/HowItWorks';
-import WhyNoobPortfolios from '@/components/landing/WhyNoobPortfolios';
 import SeeItInAction from '@/components/landing/SeeItInAction';
 import CtaReinforcement from '@/components/landing/CtaReinforcement';
 
@@ -221,11 +219,8 @@ const Auth = () => {
           ))}
         </div>
 
-        {/* How It Works */}
-        <HowItWorks />
 
-        {/* Why N00B Portfolios */}
-        <WhyNoobPortfolios />
+
 
         {/* See It in Action */}
         <SeeItInAction />
