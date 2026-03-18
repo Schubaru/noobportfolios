@@ -101,7 +101,7 @@ const HowItWorks = () => (
       </p>
     </div>
 
-    <div className="space-y-16 sm:space-y-20">
+    <div className="space-y-24 sm:space-y-32">
       {rows.map(({ icon: Icon, number, title, desc, visual }, i) => {
         const reversed = i % 2 === 1;
         return (
