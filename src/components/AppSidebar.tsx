@@ -43,7 +43,7 @@ const AppSidebar = ({ portfolios, getMetrics, getTodayBaseline, onCreateClick, o
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const settingsHoverRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsHoverRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- Settings hover helpers ---
   const clearSettingsHover = () => {

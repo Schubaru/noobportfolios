@@ -847,7 +847,7 @@ const TradeModal = ({
   const [tradeStatus, setTradeStatus] = useState<TradeStatus>('idle');
 
   // Quote refresh interval
-  const quoteRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quoteRefreshRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchedSymbol = useRef<string | null>(null);
   const lastTradeIdRef = useRef<string | null>(null);
   
