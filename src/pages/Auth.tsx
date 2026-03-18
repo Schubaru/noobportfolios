@@ -218,7 +218,7 @@ const Auth = () => {
               <h3 className="text-sm font-semibold mb-1">{title}</h3>
               <p className="text-xs text-muted-foreground">{desc}</p>
             </div>
-          )}
+          ))}
         </div>
 
         {/* How It Works */}
