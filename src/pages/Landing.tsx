@@ -115,7 +115,7 @@ const Landing = () => {
                 onClick={() => setMenuOpen(false)}
                 className="rounded-lg px-3 py-2.5 hover:bg-card hover:text-foreground md-land:p-0 md-land:rounded-none md-land:hover:bg-transparent"
               >
-                {id === 'how-it-works' ? 'How it works' : id === 'social-proof' ? 'Community' : id.charAt(0).toUpperCase() + id.slice(1)}
+                {id === 'how-it-works' ? 'How it works' : id === 'social-proof' ? 'Community' : id === 'faq' ? 'FAQ' : id.charAt(0).toUpperCase() + id.slice(1)}
               </a>
             ))}
           </nav>
@@ -311,7 +311,7 @@ const Landing = () => {
                     <span className="ml-4 text-primary">{openFaq === i ? '−' : '+'}</span>
                   </button>
                   <div
-                    className="overflow-hidden transition-[max-height] duration-250"
+                    className="overflow-hidden transition-[max-height] duration-[250ms]"
                     style={{ maxHeight: openFaq === i ? '200px' : '0px' }}
                   >
                     <p className="m-0 px-4 pb-4 text-muted-foreground">{item.a}</p>
