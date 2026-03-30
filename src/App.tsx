@@ -8,6 +8,7 @@ import AppLayout from "@/layouts/AppLayout";
 import PortfolioDetail from "./pages/PortfolioDetail";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import Landing from "./pages/Landing";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import { Loader2 } from "lucide-react";
@@ -47,18 +48,8 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            <Route path="/" element={<Landing />} />
             <Route path="/auth" element={<Auth />} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <AppLayout />
-                </ProtectedRoute>
-              }
-            >
-              {/* Redirect bare / to /portfolio (AppLayout handles picking first) */}
-              <Route index element={<Navigate to="/portfolio" replace />} />
-            </Route>
             <Route
               path="/portfolio"
               element={

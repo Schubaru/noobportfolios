@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -187,6 +187,18 @@
 
 .animate-success-glow {
   animation: successGlow 0.8s ease-in-out 0.4s;
+}
+
+/* Landing page scroll reveal */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 480ms ease, transform 480ms ease;
+}
+
+[data-reveal].landing-in-view {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 /* Custom scrollbar */
