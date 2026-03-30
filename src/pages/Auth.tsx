@@ -20,7 +20,7 @@ const Auth = () => {
   const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
 
   useEffect(() => {
-    if (user) navigate('/');
+    if (user) navigate('/portfolio');
   }, [user, navigate]);
 
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -36,7 +36,7 @@ const Auth = () => {
       toast.error(error.message.includes('Invalid login credentials') ? 'Invalid email or password' : error.message);
     } else {
       toast.success('Welcome back!');
-      navigate('/');
+      navigate('/portfolio');
     }
   };
 
@@ -52,7 +52,7 @@ const Auth = () => {
       toast.error(error.message.includes('already registered') ? 'This email is already registered. Try logging in.' : error.message);
     } else {
       toast.success('Account created! Welcome to N00B Portfolios!');
-      navigate('/');
+      navigate('/portfolio');
     }
   };
 

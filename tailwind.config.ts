@@ -13,6 +13,9 @@ export default {
       },
     },
     extend: {
+      screens: {
+        "md-land": "981px",
+      },
       fontFamily: {
         sans: ['Outfit', 'system-ui', '-apple-system', 'sans-serif'],
       },
