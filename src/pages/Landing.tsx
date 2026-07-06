@@ -69,31 +69,33 @@ const Landing = () => {
       {/* ── Header ─────────────────────────────────────── */}
       <header className="sticky top-0 z-20 border-b border-border/50 backdrop-blur-[10px] bg-[rgb(7_11_18_/_82%)]">
         <div className="mx-auto flex min-h-[72px] w-[min(1120px,calc(100%-2rem))] items-center justify-between gap-4">
-          <a
-            href="#top"
-            className="inline-flex items-center gap-2 font-sans font-bold"
-          >
-            <img src={noobLogo} alt="" className="h-6 w-6 rounded-md" />
-            N00B Portfolios
-          </a>
+          <div className="flex items-center gap-2">
+            {/* Mobile toggle */}
+            <button
+              className="relative z-30 inline-flex h-11 w-11 flex-col items-center justify-center gap-1.5 rounded-xl border border-border bg-card md-land:hidden"
+              aria-expanded={menuOpen}
+              aria-controls="landing-nav"
+              aria-label="Open menu"
+              onClick={() => setMenuOpen((o) => !o)}
+            >
+              <span
+                className="block h-0.5 w-[18px] rounded-full bg-foreground transition-transform"
+                style={menuOpen ? { transform: 'translateY(4px) rotate(45deg)' } : undefined}
+              />
+              <span
+                className="block h-0.5 w-[18px] rounded-full bg-foreground transition-transform"
+                style={menuOpen ? { transform: 'translateY(-4px) rotate(-45deg)' } : undefined}
+              />
+            </button>
 
-          {/* Mobile toggle */}
-          <button
-            className="relative z-30 inline-flex h-11 w-11 flex-col items-center justify-center gap-1.5 rounded-xl border border-border bg-card md-land:hidden"
-            aria-expanded={menuOpen}
-            aria-controls="landing-nav"
-            aria-label="Open menu"
-            onClick={() => setMenuOpen((o) => !o)}
-          >
-            <span
-              className="block h-0.5 w-[18px] rounded-full bg-foreground transition-transform"
-              style={menuOpen ? { transform: 'translateY(4px) rotate(45deg)' } : undefined}
-            />
-            <span
-              className="block h-0.5 w-[18px] rounded-full bg-foreground transition-transform"
-              style={menuOpen ? { transform: 'translateY(-4px) rotate(-45deg)' } : undefined}
-            />
-          </button>
+            <a
+              href="#top"
+              className="inline-flex items-center gap-2 font-sans font-bold"
+            >
+              <img src={noobLogo} alt="" className="h-6 w-6 rounded-md" />
+              <span className="hidden md-land:inline">N00B Portfolios</span>
+            </a>
+          </div>
 
           {/* Desktop nav */}
           <nav
